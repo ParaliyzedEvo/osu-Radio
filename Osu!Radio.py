@@ -24,13 +24,13 @@ from PySide6.QtWidgets import (
 
 from PySide6.QtCore import QPropertyAnimation, QEasingCurve, Property, Signal
 from PySide6.QtGui  import QPainter
+
 from PySide6.QtCore import Qt, QSettings, QUrl, QTimer
 from PySide6.QtGui import (
     QPixmap, QPainter,
     QKeySequence, QShortcut, QGuiApplication, QColor,
     QCursor
 )
-
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel, QFileDialog,
     QHBoxLayout, QVBoxLayout, QListWidget, QListWidgetItem,
@@ -284,7 +284,7 @@ class BackgroundWidget(QWidget):
         p = QPainter(self)
         p.drawPixmap(0, 0, self._pixmap)
         p.end()
-
+        
 class MarqueeLabel(QLabel):
     def __init__(self, *args):
         super().__init__(*args)
@@ -855,6 +855,7 @@ class MainWindow(QMainWindow):
         self.populate_list(self.queue)
         self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
 
+
     def onSongContextMenu(self, point):
         item = self.song_list.itemAt(point)
         if not item:
@@ -931,7 +932,6 @@ if __name__ == "__main__":
             print(f"[HOOK] {e.name!r} detected")
 
     keyboard.hook(_debug_key)
-
 
     # Install the keyboard hook
     keyboard.hook(_on_key)
