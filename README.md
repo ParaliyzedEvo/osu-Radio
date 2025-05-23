@@ -1,5 +1,7 @@
 Basically this repo is my modified version of [ThunderBirdo's](https://www.youtube.com/@ThunderBirdOsu) code, "osu!Radio". What I did was clean up a few stuff while adding features of my own and changing some stuff that I think would be better for this kind of code. Welp that's all to explain.
 
+Download exe [here](https://github.com/ParaliyzedEvo/osu-Radio/releases/latest)
+
 Video showing off the code: [https://www.youtube.com/watch?v=_vm78h0KDLo](https://www.youtube.com/watch?v=_vm78h0KDLo)
 
 Source Code Download: [https://drive.google.com/drive/folders/1X79i-RJW4JBnE1wXCLpm4xXNWD2VrvIm](https://drive.google.com/drive/folders/1X79i-RJW4JBnE1wXCLpm4xXNWD2VrvIm)
