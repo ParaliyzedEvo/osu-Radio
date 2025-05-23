@@ -11,7 +11,7 @@ Code Used for Creating the Background: [https://osu.ppy.sh/community/forums/topi
 <a href="https://www.star-history.com/#ParaliyzedEvo/Train-Routes&ParaliyzedEvo/osu-Radio&Date">
  <picture>
    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=ParaliyzedEvo/Train-Routes,ParaliyzedEvo/osu-Radio&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=ParaliyzedEvo/Train-Routes,ParaliyzedEvo/osu-Radio&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=ParaliyzedEvo/Train-Routes,ParaliyzedEvo/osu-Radio&type=Date" />
    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=ParaliyzedEvo/Train-Routes,ParaliyzedEvo/osu-Radio&type=Date" />
  </picture>
 </a>
