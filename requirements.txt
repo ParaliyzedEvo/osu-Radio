@@ -1,0 +1,2 @@
+keyboard==0.13.5
+mutagen==1.47.0
