@@ -60,7 +60,7 @@ jobs:
           rm -r "$ICONSET"
 
       - name: Build with PyInstaller
-        run: pyinstaller osu_radio.spec
+        run: pyinstaller Osu!Radio.spec
         shell: bash
 
       - name: Install create-dmg (macOS only)
