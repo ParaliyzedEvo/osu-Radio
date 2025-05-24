@@ -72,7 +72,7 @@ jobs:
               cat <<-'EOF' > Osu!Radio-linux.spec
 # -*- mode: python ; coding: utf-8 -*-
 a = Analysis(
-  ["MAIN_SCRIPT"],
+        [main_script],
 	pathex=[],
 	binaries=[],
 	datas=[('Background Video', 'Background Video')],
