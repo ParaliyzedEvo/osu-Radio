@@ -69,7 +69,7 @@ jobs:
             pyinstaller Osu!Radio.spec
 
           elif [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
-            cat <<EOF > Osu!Radio-linux.spec
+            cat <<'EOF' > Osu!Radio-linux.spec
             # -*- mode: python ; coding: utf-8 -*-
             a = Analysis(
                 ["$MAIN_SCRIPT"],
@@ -106,10 +106,10 @@ jobs:
                 name="$APP_NAME"
             )
             EOF
-            pyinstaller Osu!Radio_linux.spec
+            pyinstaller Osu!Radio-linux.spec
 
           elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
-            cat <<EOF > Osu!Radio_macos.spec
+            cat <<'EOF' > Osu!Radio-macos.spec
             # -*- mode: python ; coding: utf-8 -*-
             app_name = "Osu!Radio"
             main_script = "Osu!Radio.py"
