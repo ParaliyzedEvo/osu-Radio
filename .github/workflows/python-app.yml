@@ -1,0 +1,125 @@
+name: osu!Radio
+
+on:
+  push:
+    tags:
+      - 'v*'
+      - '[0-9]*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        architecture: [x64]
+    name: Build on ${{ matrix.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        shell: bash
+
+      - name: Convert .ico to .icns (macOS only)
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew install imagemagick
+          ICON_NAME="Osu!RadioIcon"
+          ICONSET="${ICON_NAME}.iconset"
+
+          mkdir -p "$ICONSET"
+          convert "$ICON_NAME.ico" "$ICONSET/icon_1024x1024.png"
+
+          sips -z 16 16     "$ICONSET/icon_1024x1024.png" --out "$ICONSET/icon_16x16.png"
+          sips -z 32 32     "$ICONSET/icon_1024x1024.png" --out "$ICONSET/icon_16x16@2x.png"
+          sips -z 32 32     "$ICONSET/icon_1024x1024.png" --out "$ICONSET/icon_32x32.png"
+          sips -z 64 64     "$ICONSET/icon_1024x1024.png" --out "$ICONSET/icon_32x32@2x.png"
+          sips -z 128 128   "$ICONSET/icon_1024x1024.png" --out "$ICONSET/icon_128x128.png"
+          sips -z 256 256   "$ICONSET/icon_1024x1024.png" --out "$ICONSET/icon_128x128@2x.png"
+          sips -z 256 256   "$ICONSET/icon_1024x1024.png" --out "$ICONSET/icon_256x256.png"
+          sips -z 512 512   "$ICONSET/icon_1024x1024.png" --out "$ICONSET/icon_256x256@2x.png"
+          sips -z 512 512   "$ICONSET/icon_1024x1024.png" --out "$ICONSET/icon_512x512.png"
+          cp "$ICONSET/icon_1024x1024.png" "$ICONSET/icon_512x512@2x.png"
+
+          iconutil -c icns "$ICONSET" -o "${ICON_NAME}.icns"
+          rm -r "$ICONSET"
+
+      - name: Build with PyInstaller
+        run: pyinstaller --onefile osu_radio.spec
+        shell: bash
+
+      - name: Install create-dmg (macOS only)
+        if: matrix.os == 'macos-latest'
+        run: brew install create-dmg
+    
+      - name: Create .dmg installer (macOS only)
+        if: matrix.os == 'macos-latest'
+        run: |
+          create-dmg \
+            --volname "osu!Radio Installer" \
+            --volicon dist/osu_radio.app/Contents/Resources/Osu!RadioIcon.icns \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --app-drop-link 450 185 \
+            dist/osu_radio.app \
+            dist/osu_radio.dmg
+
+
+      - name: Create .pkg installer
+        if: matrix.os == 'macos-latest'
+        run: |
+          pkgbuild \
+            --root dist/osu_radio.app \
+            --identifier com.yourdomain.osuradio \
+            --version 1.0.0 \
+            --install-location /Applications \
+            dist/osu_radio.pkg
+
+
+      - name: Rename macOS artifacts
+        if: matrix.os == 'macos-latest'
+        run: |
+          mv dist/osu_radio.dmg osu_radio-macos.dmg
+          mv dist/osu_radio.pkg osu_radio-macos.pkg
+
+      - name: Package output
+        run: |
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            7z a ../osu_radio-windows.zip osu_radio.exe
+          elif [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
+            zip ../osu_radio-linux.zip osu_radio
+          elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
+            tar -czf ../osu_radio-macos.tar.gz osu_radio
+          fi
+        shell: bash
+
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          # Windows: .zip
+          # Linux: .tar.gz
+          # macOS: .dmg and .pkg
+          files: |
+            osu_radio-*.zip
+            osu_radio-*.tar.gz
+            osu_radio-*.dmg
+            osu_radio-*.pkg
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
