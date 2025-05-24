@@ -60,118 +60,118 @@ jobs:
           rm -r "$ICONSET"
 
       - name: Generate and build spec file
+        shell: bash
         run: |
           APP_NAME="osu!Radio"
           MAIN_SCRIPT="Osu!Radio.py"
-      
+
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
             pyinstaller Osu!Radio.spec
-      
+
           elif [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
             cat <<EOF > Osu!Radio-linux.spec
-      # -*- mode: python ; coding: utf-8 -*-
-      a = Analysis(
-          ['\$MAIN_SCRIPT'],
-          pathex=[],
-          binaries=[],
-          datas=[('Background Video', 'Background Video')],
-          hiddenimports=[],
-          hookspath=[],
-          hooksconfig={},
-          runtime_hooks=[],
-          excludes=[],
-          noarchive=False,
-          optimize=0,
-      )
-      pyz = PYZ(a.pure)
-      exe = EXE(
-          pyz,
-          a.scripts,
-          [],
-          exclude_binaries=False,
-          name='\$APP_NAME',
-          debug=False,
-          bootloader_ignore_signals=False,
-          strip=False,
-          upx=True,
-          console=False,
-      )
-      coll = COLLECT(
-          exe,
-          a.binaries,
-          a.datas,
-          strip=False,
-          upx=True,
-          name='\$APP_NAME'
-      )
-      EOF
+            # -*- mode: python ; coding: utf-8 -*-
+            a = Analysis(
+                ["$MAIN_SCRIPT"],
+                pathex=[],
+                binaries=[],
+                datas=[('Background Video', 'Background Video')],
+                hiddenimports=[],
+                hookspath=[],
+                hooksconfig={},
+                runtime_hooks=[],
+                excludes=[],
+                noarchive=False,
+                optimize=0,
+            )
+            pyz = PYZ(a.pure)
+            exe = EXE(
+                pyz,
+                a.scripts,
+                [],
+                exclude_binaries=False,
+                name="$APP_NAME",
+                debug=False,
+                bootloader_ignore_signals=False,
+                strip=False,
+                upx=True,
+                console=False,
+            )
+            coll = COLLECT(
+                exe,
+                a.binaries,
+                a.datas,
+                strip=False,
+                upx=True,
+                name="$APP_NAME"
+            )
+            EOF
             pyinstaller Osu!Radio_linux.spec
-      
+
           elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
-            cat <<EOF > Osu!Radio-macos.spec
-      # -*- mode: python ; coding: utf-8 -*-
-      app_name = 'Osu!Radio'
-      main_script = 'Osu!Radio.py'
-      
-      a = Analysis(
-          [main_script],
-          pathex=[],
-          binaries=[],
-          datas=[('Background Video', 'Background Video')],
-          hiddenimports=[],
-          hookspath=[],
-          hooksconfig={},
-          runtime_hooks=[],
-          excludes=[],
-          noarchive=False,
-          optimize=0,
-      )
-      pyz = PYZ(a.pure)
-      exe = EXE(
-          pyz,
-          a.scripts,
-          [],
-          exclude_binaries=True,
-          name=app_name,
-          debug=False,
-          bootloader_ignore_signals=False,
-          strip=False,
-          upx=True,
-          console=False,
-          disable_windowed_traceback=False,
-          argv_emulation=True,
-          icon=['Osu!RadioIcon.icns'],
-          target_arch=None,
-          codesign_identity=None,
-          entitlements_file=None,
-      )
-      app = BUNDLE(
-          exe,
-          name=app_name + '.app',
-          icon=None,
-          bundle_identifier='com.yourdomain.osuradio',
-          info_plist={
-              'CFBundleName': app_name,
-              'CFBundleDisplayName': app_name,
-              'CFBundleIdentifier': 'com.yourdomain.osuradio',
-              'CFBundleVersion': '1.0.0',
-              'CFBundleShortVersionString': '1.0.0',
-              'NSHighResolutionCapable': 'True',
-          }
-      )
-      coll = COLLECT(
-          app,
-          a.binaries,
-          a.datas,
-          strip=False,
-          upx=True,
-          upx_exclude=[],
-          name=app_name,
-      )
-      EOF
-            pyinstaller Osu!Radio_macos.spec
+            cat <<EOF > Osu!Radio_macos.spec
+            # -*- mode: python ; coding: utf-8 -*-
+            app_name = "Osu!Radio"
+            main_script = "Osu!Radio.py"
+
+            a = Analysis(
+                [main_script],
+                pathex=[],
+                binaries=[],
+                datas=[('Background Video', 'Background Video')],
+                hiddenimports=[],
+                hookspath=[],
+                hooksconfig={},
+                runtime_hooks=[],
+                excludes=[],
+                noarchive=False,
+                optimize=0,
+            )
+            pyz = PYZ(a.pure)
+            exe = EXE(
+                pyz,
+                a.scripts,
+                [],
+                exclude_binaries=True,
+                name=app_name,
+                debug=False,
+                bootloader_ignore_signals=False,
+                strip=False,
+                upx=True,
+                console=False,
+                disable_windowed_traceback=False,
+                argv_emulation=True,
+                icon=["Osu!RadioIcon.icns"],
+                target_arch=None,
+                codesign_identity=None,
+                entitlements_file=None,
+            )
+            app = BUNDLE(
+                exe,
+                name=app_name + ".app",
+                icon=None,
+                bundle_identifier="com.yourdomain.osuradio",
+                info_plist={
+                    "CFBundleName": app_name,
+                    "CFBundleDisplayName": app_name,
+                    "CFBundleIdentifier": "com.yourdomain.osuradio",
+                    "CFBundleVersion": "1.0.0",
+                    "CFBundleShortVersionString": "1.0.0",
+                    "NSHighResolutionCapable": "True",
+                }
+            )
+            coll = COLLECT(
+                app,
+                a.binaries,
+                a.datas,
+                strip=False,
+                upx=True,
+                upx_exclude=[],
+                name=app_name,
+            )
+            EOF
+            pyinstaller Osu!Radio-macos.spec
           fi
-        shell: bash
 
       - name: Install create-dmg (macOS only)
         if: matrix.os == 'macos-latest'
