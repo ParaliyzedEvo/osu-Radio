@@ -57,6 +57,7 @@ app = BUNDLE(
 )
 
 coll = COLLECT(
+	exe,
     app,
     a.binaries,
     a.datas,
