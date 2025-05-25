@@ -81,13 +81,13 @@ jobs:
         run: |
           create-dmg \
             --volname "osu!Radio Installer" \
-            --volicon dist/osu_radio.app/Contents/Resources/Osu!RadioIcon.icns \
+            --volicon "dist/osu!Radio.app/Contents/Resources/Osu!RadioIcon.icns" \
             --window-pos 200 120 \
-            --window-size 600 400 \
+            --window-size 854 480 \
             --icon-size 100 \
             --app-drop-link 450 185 \
-            dist/osu!Radio.app \
-            dist/osu!Radio.dmg
+            "dist/osu!Radio.app" \
+            "dist/osu!Radio.dmg"
 
 
       - name: Create .pkg installer (macOS only)
