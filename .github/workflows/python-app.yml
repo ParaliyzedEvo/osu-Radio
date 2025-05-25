@@ -62,9 +62,6 @@ jobs:
       - name: Generate and build spec file
         shell: bash
         run: |
-            APP_NAME="osu!Radio"
-            MAIN_SCRIPT="Osu!Radio.py"
-
             if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
              pyinstaller Osu!Radio.spec
 
@@ -89,35 +86,35 @@ jobs:
             --window-size 600 400 \
             --icon-size 100 \
             --app-drop-link 450 185 \
-            dist/osu_radio.app \
-            dist/osu_radio.dmg
+            dist/osuRadio.app \
+            dist/osuRadio.dmg
 
 
       - name: Create .pkg installer
         if: matrix.os == 'macos-latest'
         run: |
           pkgbuild \
-            --root dist/osu_radio.app \
+            --root dist/osuRadio.app \
             --identifier com.yourdomain.osuradio \
             --version 1.0.0 \
             --install-location /Applications \
-            dist/osu_radio.pkg
+            dist/osuRadio.pkg
 
 
       - name: Rename macOS artifacts
         if: matrix.os == 'macos-latest'
         run: |
-          mv dist/osu_radio.dmg osu_radio-macos.dmg
-          mv dist/osu_radio.pkg osu_radio-macos.pkg
+          mv dist/osuRadio.dmg osu!Radio-macos.dmg
+          mv dist/osuRadio.pkg osu!Radio-macos.pkg
 
       - name: Package output
         run: |
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
             7z a ../osu!Radio-windows.zip osu!Radio.exe
           elif [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
-            zip ../osu!Radio-linux.zip osu!Radio
+            zip ../osu!Radio-linux.zip osuRadio
           elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
-            tar -czf ../osu!Radio-macos.tar.gz osu!Radio
+            tar -czf ../osu!Radio-macos.tar.gz osuRadio
           fi
         shell: bash
 
