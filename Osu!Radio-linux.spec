@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
-app_name = 'OsuRadio'
+app_name = 'osuRadio'
 main_script = 'Osu!Radio.py'
 project_root = os.getcwd()
 
