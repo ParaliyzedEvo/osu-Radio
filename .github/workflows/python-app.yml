@@ -75,15 +75,11 @@ jobs:
       - name: Install create-dmg (macOS only)
         if: matrix.os == 'macos-latest'
         run: brew install create-dmg
-
-      - name: Idek
-        if: matrix.os == 'macos-latest'
-        run: ls -l dist
     
       - name: Create .dmg installer (macOS only)
         if: matrix.os == 'macos-latest'
         run: |
-          cp -r "Background Video" dist/osu-Radio/osu-Radio.app/Contents/Resources/
+          cp -r "Background Video" "dist/osu!Radio.app/Contents/Resources/"
           create-dmg \
             --volname "osu!Radio Installer" \
             --volicon "dist/osu!Radio.app/Contents/Resources/Osu!RadioIcon.icns" \
