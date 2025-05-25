@@ -1,10 +1,9 @@
 import sys
+import platform
 import os
 import re
 from pathlib import Path
 from mutagen.mp3 import MP3
-import ctypes
-from ctypes import wintypes
 from PySide6.QtCore import QMetaObject
 from PySide6.QtCore import QAbstractNativeEventFilter, QCoreApplication, QThread
 import json, time
@@ -42,6 +41,21 @@ from PySide6.QtWidgets import (
 
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QVideoSink
 from pathlib import Path
+
+IS_WINDOWS = sys.platform.startswith("win")
+
+if IS_WINDOWS:
+    import ctypes
+    from ctypes import wintypes
+
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    except Exception as e:
+        print(f"Could not set DPI awareness: {e}")
+
+    user32 = ctypes.windll.user32
+else:
+    user32 = None # :P
 
 if getattr(sys, "frozen", False):
     # Running in a PyInstaller bundle
@@ -81,7 +95,10 @@ VK_MEDIA_PLAY_PAUSE  = 0xB3
 VK_MEDIA_NEXT_TRACK  = 0xB0
 VK_MEDIA_PREV_TRACK  = 0xB1
 
-user32 = ctypes.windll.user32
+if IS_WINDOWS:
+    user32 = ctypes.windll.user32
+else:
+    user32 = None
 
 def read_osu_lines(path):
     for enc in ("utf-8", "utf-8-sig", "cp1251", "latin-1"):
@@ -568,9 +585,12 @@ class MainWindow(QMainWindow):
         
         # register global media-key hotkeys
         # arguments: hWnd (0 for all windows), id, fsModifiers, vk
-        user32.RegisterHotKey(0, 1, MOD_NOREPEAT, VK_MEDIA_PLAY_PAUSE)
-        user32.RegisterHotKey(0, 2, MOD_NOREPEAT, VK_MEDIA_NEXT_TRACK)
-        user32.RegisterHotKey(0, 3, MOD_NOREPEAT, VK_MEDIA_PREV_TRACK)
+        if user32:
+            user32.RegisterHotKey(0, 1, MOD_NOREPEAT, VK_MEDIA_PLAY_PAUSE)
+            user32.RegisterHotKey(0, 2, MOD_NOREPEAT, VK_MEDIA_NEXT_TRACK)
+            user32.RegisterHotKey(0, 3, MOD_NOREPEAT, VK_MEDIA_PREV_TRACK)
+        else:
+            print("Global hotkeys not available on this platform.")
         cached = load_cache(self.osu_folder)    
         if cached:
             self.library = cached
@@ -884,9 +904,10 @@ class MainWindow(QMainWindow):
             pass
 
         # 1) Unregister global hotkeys
-        user32.UnregisterHotKey(0, 1)
-        user32.UnregisterHotKey(0, 2)
-        user32.UnregisterHotKey(0, 3)
+        if user32:
+            user32.UnregisterHotKey(0, 1)
+            user32.UnregisterHotKey(0, 2)
+            user32.UnregisterHotKey(0, 3)
 
         # 2) Stop your video loop cleanly
         try:

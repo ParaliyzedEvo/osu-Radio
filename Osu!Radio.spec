@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-app_name = 'Osu!Radio'
+app_name = 'osu!Radio'
 main_script = 'Osu!Radio.py'
 
 a = Analysis(
@@ -23,7 +23,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=False,
-    name='osu_radio',
+    name='osu!Radio',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -38,5 +38,5 @@ coll = COLLECT(
     a.datas,
     strip=False,
     upx=True,
-    name='osu_radio'
+    name='osu!Radio'
 )
