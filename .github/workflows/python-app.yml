@@ -94,7 +94,7 @@ jobs:
             --icon-size 100 \
             --app-drop-link 450 185 \
             dist/osuRadio.app \
-            dist/output/osuRadio.dmg
+            dist/
 
       - name: Rename .app and .dmg back to original names (macOS only)
         if: matrix.os == 'macos-latest'
