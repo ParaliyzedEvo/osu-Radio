@@ -90,8 +90,8 @@ jobs:
             --window-size 854 480 \
             --icon-size 100 \
             --app-drop-link 450 185 \
-            "dist/osu!Radio.app" \
-            "dist/osu!Radio.dmg"
+            "dist/osuRadio.app" \
+            "dist/osuRadio.dmg"
 
 
       - name: Create .pkg installer (macOS only)
