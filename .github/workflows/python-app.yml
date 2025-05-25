@@ -106,8 +106,9 @@ jobs:
           elif [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
             cp dist/osu!Radio osu!Radio-linux
           elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
+            cp "dist/osu!Radio.app" "osu!Radio.app"
             cp "dist/osu!Radio.pkg" "osu!Radio.pkg"
-            cp "osu!Radio.dmg" "osu!Radio.dmg"
+            cp "dist/osu!Radio.dmg" "osu!Radio.dmg"
           fi
         shell: bash
         
@@ -118,7 +119,7 @@ jobs:
           draft: true
           # Windows: .zip
           # Linux: osu!Radio-linux
-          # macOS: .dmg and .pkg
+          # macOS: .dmg and .app
           files: |
               osu!Radio-windows.zip
               osu!Radio-linux
