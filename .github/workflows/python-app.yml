@@ -94,7 +94,7 @@ jobs:
         run: |
           pkgbuild \
             --root dist/osu!Radio.app \
-            --identifier com.yourdomain.osuradio \
+            --identifier com.paraliyzedevo.osuradio \
             --version 1.0.0 \
             --install-location /Applications \
             dist/osu!Radio.pkg
@@ -106,8 +106,8 @@ jobs:
           elif [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
             cp dist/osu!Radio ../osu!Radio-linux
           elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
-            cp dist/osu!Radio.pkg ../osu!Radio.pkg
-            cp dist/osu!Radio.dmg ../osu!Radio.dmg
+            cp "dist/osu!Radio.pkg" "../osu!Radio.pkg"
+            cp "dist/osu!Radio.dmg" "../osu!Radio.dmg"
           fi
         shell: bash
 
