@@ -106,7 +106,6 @@ jobs:
           elif [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
             cp dist/osu!Radio osu!Radio-linux
           elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
-            cp "dist/osu!Radio.app" "osu!Radio.app"
             cp "dist/osu!Radio.pkg" "osu!Radio.pkg"
             cp "dist/osu!Radio.dmg" "osu!Radio.dmg"
           fi
