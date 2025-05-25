@@ -43,7 +43,7 @@ jobs:
           ICONSET="${ICON_NAME}.iconset"
       
           mkdir -p "$ICONSET"
-          magick convert "$ICON_NAME.ico" "$ICONSET/icon_1024x1024.png"
+          magick convert "$ICON_NAME.png" "$ICONSET/icon_1024x1024.png"
       
           sips -z 16 16     "$ICONSET/icon_1024x1024.png" --out "$ICONSET/icon_16x16.png"
           sips -z 32 32     "$ICONSET/icon_1024x1024.png" --out "$ICONSET/icon_16x16@2x.png"
