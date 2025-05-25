@@ -23,7 +23,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=False,
-    name="app_name",
+    name=app_name,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
