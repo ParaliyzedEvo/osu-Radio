@@ -2,13 +2,13 @@
 import os
 app_name = 'Osu!Radio'
 main_script = 'Osu!Radio.py'
-project_root = os.path.abspath(os.path.dirname(__file__))
+project_root = os.getcwd()
 
 a = Analysis(
     [main_script],
     pathex=[],
     binaries=[],
-    datas=[(os.path.join(project_root, 'Background Video'), 'Background Video')],
+    datas=[('Background Video', 'Background Video')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
