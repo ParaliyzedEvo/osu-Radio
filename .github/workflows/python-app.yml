@@ -69,7 +69,7 @@ jobs:
              pyinstaller Osu!Radio.spec
 
             elif [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
-              pyinstaller Osu!Radio.spec
+              pyinstaller Osu!Radio-linux.spec
 
             elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
               pyinstaller Osu!Radio-macos.spec
