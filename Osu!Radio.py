@@ -4,6 +4,7 @@ import os
 import re
 from pathlib import Path
 from mutagen.mp3 import MP3
+from PyQt5.QtGui import QIcon
 from PySide6.QtCore import QMetaObject
 from PySide6.QtCore import QAbstractNativeEventFilter, QCoreApplication, QThread
 import json, time
@@ -383,8 +384,17 @@ class MainWindow(QMainWindow):
         self.queue   = []
         self.current_index = 0
         
+        if sys.platform == "darwin":
+            icon = "Osu!RadioIcon.icns"
+        elif sys.platform.startswith("linux"):
+            icon = "Osu!RadioIcon.png"
+        elif sys.platform.startswith("win"):
+            icon= "Osu!RadioIcon.ico"
+        else:
+            icon = "Osu!RadioIcon.png"  # fallback
+            
         base_path = getattr(sys, "_MEIPASS", os.path.abspath(os.path.dirname(__file__)))
-        icon_path = os.path.join(base_path, "Osu!RadioIcon.ico")
+        icon_path = os.path.join(base_path, icon)
         self.setWindowIcon(QIcon(icon_path))
         
         self.setWindowTitle("osu!Radio")
