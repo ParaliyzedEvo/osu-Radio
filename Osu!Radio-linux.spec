@@ -1,12 +1,14 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
 app_name = 'Osu!Radio'
 main_script = 'Osu!Radio.py'
+project_root = os.path.abspath(os.path.dirname(__file__))
 
 a = Analysis(
     [main_script],
     pathex=[],
     binaries=[],
-    datas=[('Background Video', 'Background Video')],
+    datas=[(os.path.join(project_root, 'Background Video'), 'Background Video')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -34,5 +36,5 @@ coll = COLLECT(
     a.datas,
     strip=False,
     upx=True,
-    name="app_name"
+    name=app_name
 )

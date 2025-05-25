@@ -1,12 +1,14 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
 app_name = "Osu!Radio"
 main_script = "Osu!Radio.py"
+project_root = os.path.abspath(os.path.dirname(__file__))
 
 a = Analysis(
 	[main_script],
 	pathex=[],
 	binaries=[],
-	datas=[('Background Video', 'Background Video')],
+	datas=[(os.path.join(project_root, 'Background Video'), 'Background Video')],
 	hiddenimports=[],
 	hookspath=[],
 	hooksconfig={},
@@ -29,7 +31,7 @@ exe = EXE(
 	console=False,
 	disable_windowed_traceback=False,
 	argv_emulation=True,
-	icon=["Osu!RadioIcon.icns"],
+	icon=[os.path.join(project_root, "Osu!RadioIcon.icns")],
 	target_arch=None,
 	codesign_identity=None,
 	entitlements_file=None,
@@ -37,7 +39,7 @@ exe = EXE(
 app = BUNDLE(
 	exe,
 	name=app_name + ".app",
-	icon="Osu!RadioIcon.icns",
+	icon=os.path.join(project_root, "Osu!RadioIcon.icns"),
 	bundle_identifier="com.yourdomain.osuradio",
 	info_plist={
 		"CFBundleName": app_name,
