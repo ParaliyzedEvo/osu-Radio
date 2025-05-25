@@ -41,10 +41,10 @@ jobs:
           brew install imagemagick
           ICON_NAME="Osu!RadioIcon"
           ICONSET="${ICON_NAME}.iconset"
-
+      
           mkdir -p "$ICONSET"
-          convert "$ICON_NAME.ico" "$ICONSET/icon_1024x1024.png"
-
+          magick convert "$ICON_NAME.ico" "$ICONSET/icon_1024x1024.png"
+      
           sips -z 16 16     "$ICONSET/icon_1024x1024.png" --out "$ICONSET/icon_16x16.png"
           sips -z 32 32     "$ICONSET/icon_1024x1024.png" --out "$ICONSET/icon_16x16@2x.png"
           sips -z 32 32     "$ICONSET/icon_1024x1024.png" --out "$ICONSET/icon_32x32.png"
@@ -55,7 +55,7 @@ jobs:
           sips -z 512 512   "$ICONSET/icon_1024x1024.png" --out "$ICONSET/icon_256x256@2x.png"
           sips -z 512 512   "$ICONSET/icon_1024x1024.png" --out "$ICONSET/icon_512x512.png"
           cp "$ICONSET/icon_1024x1024.png" "$ICONSET/icon_512x512@2x.png"
-
+      
           iconutil -c icns "$ICONSET" -o "${ICON_NAME}.icns"
           rm -r "$ICONSET"
 
