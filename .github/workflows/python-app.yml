@@ -79,6 +79,7 @@ jobs:
       - name: Create .dmg installer (macOS only)
         if: matrix.os == 'macos-latest'
         run: |
+          cp -r "Background Video" dist/osu!Radio/osu!Radio.app/Contents/Resources/
           create-dmg \
             --volname "osu!Radio Installer" \
             --volicon "dist/osu!Radio.app/Contents/Resources/Osu!RadioIcon.icns" \
@@ -102,9 +103,13 @@ jobs:
       - name: Package output
         run: |
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            7z a osu!Radio-windows.zip dist/*
+            7z a osu!Radio-windows.zip dist/osu!Radio/*
           elif [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
-            cp dist/osu!Radio osu!Radio-linux
+            mkdir -p 'Osu!Radio'
+            cp -r 'dist/osu!Radio' package/
+            cp -r 'Background Video' package/
+            cp 'Osu!RadioIcon.ico' package/
+            tar -czf 'osu!Radio.tar.gz' -C 'Osu!Radio' .
           elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
             cp "dist/osu!Radio.pkg" "osu!Radio.pkg"
           fi
@@ -116,11 +121,11 @@ jobs:
           tag_name: ${{ github.ref_name }}
           draft: true
           # Windows: .zip
-          # Linux: osu!Radio-linux
+          # Linux: .tar.gz
           # macOS: .dmg and .app
           files: |
               osu!Radio-windows.zip
-              osu!Radio-linux
+              osu!Radio.tar.gz
               osu!Radio.pkg
               osu!Radio.dmg
         env:
