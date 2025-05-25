@@ -110,6 +110,6 @@ jobs:
             cp "osu!Radio.dmg" "osu!Radio.dmg"
           fi
         shell: bash
-
-- name: List files before upload
-  run: ls -lh
+        
+      - name: List files before upload
+        run: ls -lh
