@@ -103,7 +103,7 @@ jobs:
       - name: Package output
         run: |
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            zip a ../osu!Radio-windows.zip dist/*
+            7z a ../osu!Radio-windows.zip dist/*
           elif [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
             cp dist/osu!Radio ../osu!Radio-linux
           elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
