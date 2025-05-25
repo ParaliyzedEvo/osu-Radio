@@ -113,11 +113,11 @@ jobs:
       - name: Package output
         run: |
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            7z a ../osu_radio-windows.zip osu_radio.exe
+            7z a ../osu!Radio-windows.zip osu!Radio.exe
           elif [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
-            zip ../osu_radio-linux.zip osu_radio
+            zip ../osu!Radio-linux.zip osu!Radio
           elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
-            tar -czf ../osu_radio-macos.tar.gz osu_radio
+            tar -czf ../osu!Radio-macos.tar.gz osu!Radio
           fi
         shell: bash
 
