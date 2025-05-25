@@ -73,6 +73,7 @@ jobs:
 
             elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
               pyinstaller Osu!Radio-macos.spec
+            fi
 
       - name: Install create-dmg (macOS only)
         if: matrix.os == 'macos-latest'
