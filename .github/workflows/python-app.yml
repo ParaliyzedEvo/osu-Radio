@@ -71,18 +71,10 @@ jobs:
             elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
               pyinstaller Osu!Radio-macos.spec
             fi
-      
-      - name: Rename .app to avoid special chars (macOS only)
-        if: matrix.os == 'macos-latest'
-        run: mv "dist/osu!Radio.app" "dist/osuRadio.app"
 
       - name: Install create-dmg (macOS only)
         if: matrix.os == 'macos-latest'
         run: brew install create-dmg
-
-      - name: Debug dist folder contents
-        if: matrix.os == 'macos-latest'
-        run: ls -la dist
     
       - name: Create .dmg installer (macOS only)
         if: matrix.os == 'macos-latest'
@@ -94,15 +86,15 @@ jobs:
             --window-size 854 480 \
             --icon-size 100 \
             --app-drop-link 450 185 \
-            dist/osuRadio.app \
-            dist/osuRadio.dmg
+            dist/osu!Radio.app \
+            ../osu!Radio.dmg
 
 
       - name: Create .pkg installer (macOS only)
         if: matrix.os == 'macos-latest'
         run: |
           pkgbuild \
-            --root dist/osuRadio.app \
+            --root dist/osu!Radio.app \
             --identifier com.yourdomain.osuradio \
             --version 1.0.0 \
             --install-location /Applications \
