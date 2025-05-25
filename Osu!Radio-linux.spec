@@ -4,7 +4,7 @@ a = Analysis(
     ['Osu!Radio.py'],
     pathex=[],
     binaries=[],
-    datas=[('Background Video/Triangles.mov', 'Background Video')],
+    datas=[('Background Video', 'Background Video'),('Osu!RadioIcon.ico','.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
