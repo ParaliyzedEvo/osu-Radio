@@ -111,5 +111,18 @@ jobs:
           fi
         shell: bash
         
-      - name: List files before upload
-        run: ls -lh
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          draft: true
+          # Windows: .zip
+          # Linux: osu!Radio-linux
+          # macOS: .dmg and .pkg
+          files: |
+              osu!Radio-windows.zip
+              osu!Radio-linux
+              osu!Radio.pkg
+              osu!Radio.dmg
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
