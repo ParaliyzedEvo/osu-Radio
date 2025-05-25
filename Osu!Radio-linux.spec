@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 a = Analysis(
-    ['OsuRadio.py'],
+    ['Osu!Radio.py'],
     pathex=[],
     binaries=[],
     datas=[('Background Video/Triangles.mov', 'Background Video')],
