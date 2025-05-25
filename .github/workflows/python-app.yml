@@ -89,7 +89,6 @@ jobs:
           cd dist
           create-dmg \
             --volname "osu!Radio Installer" \
-            --volicon "dist/osuRadio.app/Contents/Resources/Osu!RadioIcon.icns" \
             --window-pos 200 120 \
             --window-size 854 480 \
             --icon-size 100 \
