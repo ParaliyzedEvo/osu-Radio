@@ -71,6 +71,10 @@ jobs:
             elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
               pyinstaller Osu!Radio-macos.spec
             fi
+      
+      - name: Rename .app to avoid special chars (macOS only)
+        if: matrix.os == 'macos-latest'
+        run: mv "dist/osu!Radio.app" "dist/osuRadio.app"
 
       - name: Install create-dmg (macOS only)
         if: matrix.os == 'macos-latest'
@@ -81,7 +85,7 @@ jobs:
         run: |
           create-dmg \
             --volname "osu!Radio Installer" \
-            --volicon "dist/osu!Radio.app/Contents/Resources/Osu!RadioIcon.icns" \
+            --volicon "dist/osuRadio.app/Contents/Resources/Osu!RadioIcon.icns" \
             --window-pos 200 120 \
             --window-size 854 480 \
             --icon-size 100 \
