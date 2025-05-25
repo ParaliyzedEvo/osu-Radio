@@ -521,7 +521,10 @@ class MainWindow(QMainWindow):
         bot.addWidget(self.loop_btn)
 
         b_shuf = QPushButton()
-        b_shuf.setIcon(self.style().standardIcon(QStyle.SP_FileDialogNewFolder))
+        b_shuf.setFixedHeight(24)
+        b_shuf.setFixedWidth(34)
+        b_shuf.setStyleSheet("font-size: 15px;")
+        b_shuf.setText("🔀")
         b_shuf.clicked.connect(self.shuffle)
         bot.addWidget(b_shuf)
 
@@ -695,10 +698,19 @@ class MainWindow(QMainWindow):
     def update_loop_icon(self):
         if self.loop_mode == 0:
             self.loop_btn.setIcon(self.style().standardIcon(QStyle.SP_BrowserStop))
+            self.loop_btn.setText("")
         elif self.loop_mode == 1:
-            self.loop_btn.setIcon(self.style().standardIcon(QStyle.SP_BrowserReload))
+            self.loop_btn.setText("🔁")
+            self.loop_btn.setIcon(QIcon())
+            self.loop_btn.setStyleSheet("font-size: 15px;")
+            self.loop_btn.setFixedHeight(24)
+            self.loop_btn.setFixedWidth(34)
         elif self.loop_mode == 2:
-            self.loop_btn.setIcon(self.style().standardIcon(QStyle.SP_DialogResetButton))
+            self.loop_btn.setText("🔂")
+            self.loop_btn.setIcon(QIcon())
+            self.loop_btn.setStyleSheet("font-size: 15px;")
+            self.loop_btn.setFixedHeight(24)
+            self.loop_btn.setFixedWidth(34)
 
     def play_song(self, song):
         audio_path = Path(song["folder"]) / song["audio"]
