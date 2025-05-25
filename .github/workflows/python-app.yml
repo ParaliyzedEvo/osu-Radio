@@ -86,8 +86,8 @@ jobs:
             --window-size 600 400 \
             --icon-size 100 \
             --app-drop-link 450 185 \
-            dist/osuRadio.app \
-            dist/osuRadio.dmg
+            dist/osu!Radio.app \
+            dist/osu!Radio.dmg
 
 
       - name: Create .pkg installer
@@ -98,23 +98,17 @@ jobs:
             --identifier com.yourdomain.osuradio \
             --version 1.0.0 \
             --install-location /Applications \
-            dist/osuRadio.pkg
-
-
-      - name: Rename macOS artifacts
-        if: matrix.os == 'macos-latest'
-        run: |
-          mv dist/osuRadio.dmg osu!Radio-macos.dmg
-          mv dist/osuRadio.pkg osu!Radio-macos.pkg
+            dist/osu!Radio.pkg
 
       - name: Package output
         run: |
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            7z a ../osu!Radio-windows.zip osu!Radio.exe
+            zip a ../osu!Radio-windows.zip dist/*
           elif [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
-            zip ../osu!Radio-linux.zip dist/osuRadio
+            cp dist/osu!Radio ../osu!Radio-linux
           elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
-            tar -czf ../osu!Radio-macos.tar.gz dist/osuRadio
+            cp dist/osu!Radio.pkg ../osu!Radio.pkg
+            cp dist/osu!Radio.dmg ../osu!Radio.dmg
           fi
         shell: bash
 
@@ -124,12 +118,12 @@ jobs:
           tag_name: ${{ github.ref_name }}
           draft: true
           # Windows: .zip
-          # Linux: .tar.gz
+          # Linux: osu!Radio-linux
           # macOS: .dmg and .pkg
           files: |
-            osu_radio-*.zip
-            osu_radio-*.tar.gz
-            osu_radio-*.dmg
-            osu_radio-*.pkg
+              osu!Radio-windows.zip
+              osu!Radio-linux
+              osu!Radio.pkg
+              osu!Radio.dmg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
