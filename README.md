@@ -1,4 +1,6 @@
-Basically this repo is my modified version of [ThunderBirdo's](https://www.youtube.com/@ThunderBirdOsu) code, "osu!Radio". What I did was clean up a few stuff while adding features of my own and changing some stuff that I think would be better for this kind of code. Welp that's all to explain.
+~~Basically this repo is my modified version of [ThunderBirdo's](https://www.youtube.com/@ThunderBirdOsu) code, "osu!Radio". What I did was clean up a few stuff while adding features of my own and changing some stuff that I think would be better for this kind of code. Welp that's all to explain.~~
+
+Me and ThunderBirdo are now collaborating in this repo to make osu!Radio V2!
 
 **ALL PLATFORMS SUPPORTED**
 
