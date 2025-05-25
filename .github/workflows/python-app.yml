@@ -80,7 +80,6 @@ jobs:
         if: matrix.os == 'macos-latest'
         run: |
           cp -r "Background Video" "dist/osu!Radio.app/Contents/Resources/"
-          cp -r "Osu!RadioIcon.ico" "dist/osu!Radio.app/Contents/Resources/"
           create-dmg \
             --volname "osu!Radio Installer" \
             --volicon "dist/osu!Radio.app/Contents/Resources/Osu!RadioIcon.icns" \
@@ -109,7 +108,7 @@ jobs:
             mkdir -p 'Osu!Radio'
             cp -r 'dist/osu!Radio' 'Osu!Radio/'
             cp -r 'Background Video' 'Osu!Radio/'
-            cp 'Osu!RadioIcon.ico' 'Osu!Radio/'
+            cp 'Osu!RadioIcon.png' 'Osu!Radio/'
             tar -czf 'osu!Radio.tar.gz' -C 'Osu!Radio' .
           elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
             cp "dist/osu!Radio.pkg" "osu!Radio.pkg"
