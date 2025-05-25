@@ -112,9 +112,9 @@ jobs:
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
             7z a ../osu!Radio-windows.zip osu!Radio.exe
           elif [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
-            zip ../osu!Radio-linux.zip dist/"osu!Radio"
+            zip ../osu!Radio-linux.zip dist/osuRadio
           elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
-            tar -czf ../osu!Radio-macos.tar.gz dist/"osu!Radio"
+            tar -czf ../osu!Radio-macos.tar.gz dist/osuRadio
           fi
         shell: bash
 
