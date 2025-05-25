@@ -4,7 +4,7 @@ import os
 import re
 from pathlib import Path
 from mutagen.mp3 import MP3
-from PyQt5.QtGui import QIcon
+from PySide6.QtGui import QIcon
 from PySide6.QtCore import QMetaObject
 from PySide6.QtCore import QAbstractNativeEventFilter, QCoreApplication, QThread
 import json, time
