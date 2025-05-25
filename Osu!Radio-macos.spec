@@ -23,7 +23,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='osu_radio',
+    name='osu!Radio',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -45,13 +45,4 @@ app = BUNDLE(
         'CFBundleShortVersionString': '1.0.0',
         'NSHighResolutionCapable': 'True',
     },
-)
-
-coll = COLLECT(
-    app,
-    a.binaries,
-    a.datas,
-    strip=False,
-    upx=True,
-    name='osu!Radio'
 )
