@@ -35,7 +35,7 @@ jobs:
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
         shell: bash
 
-      - name: Convert .ico to .icns (macOS only)
+      - name: Convert .png to .icns (macOS only)
         if: matrix.os == 'macos-latest'
         run: |
           brew install imagemagick
@@ -59,7 +59,7 @@ jobs:
           iconutil -c icns "$ICONSET" -o "${ICON_NAME}.icns"
           rm -r "$ICONSET"
 
-      - name: Generate and build spec file
+      - name: Build spec file
         shell: bash
         run: |
             if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
@@ -90,7 +90,7 @@ jobs:
             dist/osu!Radio.dmg
 
 
-      - name: Create .pkg installer
+      - name: Create .pkg installer (macOS only)
         if: matrix.os == 'macos-latest'
         run: |
           pkgbuild \
