@@ -86,15 +86,15 @@ jobs:
       - name: Create .dmg installer (macOS only)
         if: matrix.os == 'macos-latest'
         run: |
-          cd dist
           create-dmg \
             --volname "osu!Radio Installer" \
+            --volicon "dist/osuRadio.app/Contents/Resources/Osu!RadioIcon.icns" \
             --window-pos 200 120 \
             --window-size 854 480 \
             --icon-size 100 \
             --app-drop-link 450 185 \
-            osuRadio.app \
-            osuRadio.dmg
+            dist/osuRadio.app \
+            dist/output/osuRadio.dmg
 
       - name: Rename .app and .dmg back to original names (macOS only)
         if: matrix.os == 'macos-latest'
