@@ -6,7 +6,7 @@ a = Analysis(
     [main_script],
     pathex=[],
     binaries=[],
-    datas=[('Background Video', 'Background Video')],
+    datas=[('Background Video', 'Background Video'),('Osu!RadioIcon.ico','.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
