@@ -106,9 +106,9 @@ jobs:
             7z a osu!Radio-windows.zip dist/osu!Radio/*
           elif [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
             mkdir -p 'Osu!Radio'
-            cp -r 'dist/osu!Radio' package/
-            cp -r 'Background Video' package/
-            cp 'Osu!RadioIcon.ico' package/
+            cp -r 'dist/osu!Radio' 'Osu!Radio/'
+            cp -r 'Background Video' 'Osu!Radio/'
+            cp 'Osu!RadioIcon.ico' 'Osu!Radio/'
             tar -czf 'osu!Radio.tar.gz' -C 'Osu!Radio' .
           elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
             cp "dist/osu!Radio.pkg" "osu!Radio.pkg"
