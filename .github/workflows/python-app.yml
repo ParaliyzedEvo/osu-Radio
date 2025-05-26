@@ -16,7 +16,6 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        architecture: [x64]
     name: Build on ${{ matrix.os }}
 
     steps:
@@ -31,20 +30,18 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install -r requirements.txt pyinstaller
         shell: bash
 
+      # --- macOS Specific: Icon Conversion and Tools ---
       - name: Convert .png to .icns (macOS only)
         if: matrix.os == 'macos-latest'
         run: |
           brew install imagemagick
           ICON_NAME="Osu!RadioIcon"
           ICONSET="${ICON_NAME}.iconset"
-      
           mkdir -p "$ICONSET"
           magick convert "$ICON_NAME.png" "$ICONSET/icon_1024x1024.png"
-      
           sips -z 16 16     "$ICONSET/icon_1024x1024.png" --out "$ICONSET/icon_16x16.png"
           sips -z 32 32     "$ICONSET/icon_1024x1024.png" --out "$ICONSET/icon_16x16@2x.png"
           sips -z 32 32     "$ICONSET/icon_1024x1024.png" --out "$ICONSET/icon_32x32.png"
@@ -55,28 +52,26 @@ jobs:
           sips -z 512 512   "$ICONSET/icon_1024x1024.png" --out "$ICONSET/icon_256x256@2x.png"
           sips -z 512 512   "$ICONSET/icon_1024x1024.png" --out "$ICONSET/icon_512x512.png"
           cp "$ICONSET/icon_1024x1024.png" "$ICONSET/icon_512x512@2x.png"
-      
           iconutil -c icns "$ICONSET" -o "${ICON_NAME}.icns"
           rm -r "$ICONSET"
 
-      - name: Build spec file
-        shell: bash
-        run: |
-            if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-             pyinstaller Osu!Radio.spec
+      - name: Build app (Windows)
+        if: matrix.os == 'windows-latest'
+        run: pyinstaller Osu!Radio.spec
 
-            elif [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
-              pyinstaller Osu!Radio-linux.spec
+      - name: Build app (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: pyinstaller Osu!Radio-linux.spec
 
-            elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
-              pyinstaller Osu!Radio-macos.spec
-            fi
+      - name: Build app (macOS)
+        if: matrix.os == 'macos-latest'
+        run: pyinstaller Osu!Radio-macos.spec
 
-      - name: Install create-dmg (macOS only)
+      - name: Install create-dmg (macOS)
         if: matrix.os == 'macos-latest'
         run: brew install create-dmg
-    
-      - name: Create .dmg installer (macOS only)
+
+      - name: Create .dmg installer (macOS)
         if: matrix.os == 'macos-latest'
         run: |
           cp -r "Background Video" "dist/osu!Radio.app/Contents/Resources/"
@@ -90,43 +85,62 @@ jobs:
             osu!Radio.dmg \
             dist/osu!Radio.app
 
-      - name: Create .pkg installer (macOS only)
+      - name: Create .pkg installer (macOS)
         if: matrix.os == 'macos-latest'
         run: |
           pkgbuild \
             --root dist/osu!Radio.app \
             --identifier com.paraliyzedevo.osuradio \
-            --version 1.0.0 \
+            --version 1.1.1 \
             --install-location /Applications \
             dist/osu!Radio.pkg
 
-      - name: Package output
+      - name: Package output (Windows)
+        if: matrix.os == 'windows-latest'
+        run: 7z a osu!Radio-windows.zip dist/osu!Radio/*
+
+      - name: Package output (Linux)
+        if: matrix.os == 'ubuntu-latest'
         run: |
-          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            7z a osu!Radio-windows.zip dist/osu!Radio/*
-          elif [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
-            mkdir -p 'Osu!Radio'
-            cp -r 'dist/osu!Radio' 'Osu!Radio/'
-            cp -r 'Background Video' 'Osu!Radio/'
-            cp 'Osu!RadioIcon.png' 'Osu!Radio/'
-            tar -czf 'osu!Radio.tar.gz' -C 'Osu!Radio' .
-          elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
-            cp "dist/osu!Radio.pkg" "osu!Radio.pkg"
-          fi
-        shell: bash
-        
-      - name: Upload Release Asset
+          mkdir -p 'Osu!Radio'
+          cp -r 'dist/osu!Radio' 'Osu!Radio/'
+          cp -r 'Background Video' 'Osu!Radio/'
+          cp 'Osu!RadioIcon.png' 'Osu!Radio/'
+          tar -czf 'osu!Radio.tar.gz' -C 'Osu!Radio' .
+
+      - name: Copy macOS installers for upload
+        if: matrix.os == 'macos-latest'
+        run: |
+          cp "dist/osu!Radio.pkg" "osu!Radio.pkg"
+
+      - name: Upload Release Asset (Windows)
+        if: matrix.os == 'windows-latest'
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.ref_name }}
           draft: true
-          # Windows: .zip
-          # Linux: .tar.gz
-          # macOS: .dmg and .app
-          files: |
-              osu!Radio-windows.zip
-              osu!Radio.tar.gz
-              osu!Radio.pkg
-              osu!Radio.dmg
+          files: osu!Radio-windows.zip
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Release Asset (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          draft: true
+          files: osu!Radio.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Release Assets (macOS)
+        if: matrix.os == 'macos-latest'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          draft: true
+          files: |
+            osu!Radio.pkg
+            osu!Radio.dmg
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
