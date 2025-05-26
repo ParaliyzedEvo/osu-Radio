@@ -6,6 +6,8 @@ Me and ThunderBirdo are now collaborating in this repo to make osu!Radio V2!
 
 Download [here](https://github.com/ParaliyzedEvo/osu-Radio/releases/latest)
 
+Report issues or feature ideas [here](https://github.com/ParaliyzedEvo/osu-Radio/issues)
+
 Video showing off the code: [https://www.youtube.com/watch?v=_vm78h0KDLo](https://www.youtube.com/watch?v=_vm78h0KDLo)
 
 Source Code Download: [https://drive.google.com/drive/folders/1X79i-RJW4JBnE1wXCLpm4xXNWD2VrvIm](https://drive.google.com/drive/folders/1X79i-RJW4JBnE1wXCLpm4xXNWD2VrvIm)
