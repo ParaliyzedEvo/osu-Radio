@@ -1,105 +1,62 @@
 import sys
-import platform
 import os
 import re
+import json
+import random
 from pathlib import Path
 from mutagen.mp3 import MP3
-from PySide6.QtGui import QIcon
-from PySide6.QtCore import QMetaObject
-from PySide6.QtCore import QAbstractNativeEventFilter, QCoreApplication, QThread
-import json, time
-
 from PySide6.QtCore import (
-    Qt, QSettings, QUrl, QTimer,
+    Qt, QUrl, QTimer, QThread, QMetaObject,
     QPropertyAnimation, QEasingCurve, Property,
-    QSequentialAnimationGroup, QPauseAnimation
+    QSequentialAnimationGroup, QPauseAnimation, Signal
 )
-
-from PySide6.QtWidgets import QSizePolicy, QGraphicsColorizeEffect
-from PySide6.QtGui import QImage, QIcon
-from PySide6.QtGui import QPixmap, QPainter, QColor
-from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QLabel,
-)
-
-from PySide6.QtCore import QPropertyAnimation, QEasingCurve, Property, Signal
-from PySide6.QtGui  import QPainter
-
-from PySide6.QtCore import Qt, QSettings, QUrl, QTimer
 from PySide6.QtGui import (
-    QPixmap, QPainter,
-    QKeySequence, QShortcut, QGuiApplication, QColor,
-    QCursor
+    QIcon, QPixmap, QPainter, QColor,
+    QKeySequence, QShortcut, QCursor,
+    QGuiApplication
 )
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel, QFileDialog,
     QHBoxLayout, QVBoxLayout, QListWidget, QListWidgetItem,
     QPushButton, QLineEdit, QSlider, QStyle,
     QDialog, QDialogButtonBox, QCheckBox, QComboBox,
-    QGraphicsOpacityEffect, QMenu, QGridLayout, QSplitter,
-    QToolTip
+    QGraphicsOpacityEffect, QGraphicsColorizeEffect,
+    QMenu, QGridLayout, QSplitter, QToolTip, QSizePolicy
 )
-
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QVideoSink
-from pathlib import Path
 
 IS_WINDOWS = sys.platform.startswith("win")
-
-if IS_WINDOWS:
-    import ctypes
-    from ctypes import wintypes
-
-    try:
-        ctypes.windll.shcore.SetProcessDpiAwareness(1)
-    except Exception as e:
-        print(f"Could not set DPI awareness: {e}")
-
-    user32 = ctypes.windll.user32
-else:
-    user32 = None # :P
-
-if getattr(sys, "frozen", False):
-    # Running in a PyInstaller bundle
-    BASE_PATH = Path(sys.executable).parent
-else:
-    # Running as a normal .py
-    BASE_PATH = Path(__file__).parent
-
-# Replace CACHE_FILE = "library_cache.json"
+BASE_PATH = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
 CACHE_FILE = BASE_PATH / "library_cache.json"
 SETTINGS_FILE = BASE_PATH / "settings.json"
 
-def load_cache(osu_folder):
-    """Return cached list or None if cache is invalid/missing."""
+if IS_WINDOWS:
+    import ctypes
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    except Exception:
+        pass
+    user32 = ctypes.windll.user32
+else:
+    user32 = None
+
+WM_HOTKEY, MOD_NOREPEAT = 0x0312, 0x4000
+VK_MEDIA_PLAY_PAUSE, VK_MEDIA_NEXT_TRACK, VK_MEDIA_PREV_TRACK = 0xB3, 0xB0, 0xB1
+
+# Utility functions
+def load_cache(folder):
     try:
         with open(CACHE_FILE, "r") as f:
             data = json.load(f)
-        # Has the folder changed since we last cached?
-        if data.get("folder_mtime") == os.path.getmtime(osu_folder):
+        if data.get("folder_mtime") == os.path.getmtime(folder):
             return data["maps"]
     except Exception:
         pass
     return None
 
-def save_cache(osu_folder, maps):
-    data = {
-        "folder_mtime": os.path.getmtime(osu_folder),
-        "maps": maps
-    }
+def save_cache(folder, maps):
     with open(CACHE_FILE, "w") as f:
-        json.dump(data, f)
-
-# Win32 constants
-WM_HOTKEY            = 0x0312
-MOD_NOREPEAT         = 0x4000
-VK_MEDIA_PLAY_PAUSE  = 0xB3
-VK_MEDIA_NEXT_TRACK  = 0xB0
-VK_MEDIA_PREV_TRACK  = 0xB1
-
-if IS_WINDOWS:
-    user32 = ctypes.windll.user32
-else:
-    user32 = None
+        json.dump({"folder_mtime": os.path.getmtime(folder), "maps": maps}, f)
 
 def read_osu_lines(path):
     for enc in ("utf-8", "utf-8-sig", "cp1251", "latin-1"):
@@ -113,196 +70,53 @@ def read_osu_lines(path):
 
 class OsuParser:
     @staticmethod
-    def parse(osu_path):
-        """Parse the .osu file at osu_path and return a dict with audio, title, artist, etc."""
-        data = {
-            "audio":      "",
-            "title":      "",
-            "artist":     "",
-            "mapper":     "",
-            "background": "",
-            "length":     0,
-            "osu_file":   osu_path,
-            "folder":     str(Path(osu_path).parent),
-        }
-
-        print(f"Parsing {osu_path!r}")  # debug
-
-        for raw in read_osu_lines(osu_path):
-            line = raw.strip()
-            low  = line.lower()
-
-            # audio filename (case‐insensitive, any spacing around colon)
-            m = re.match(r'\s*audiofilename\s*:\s*(.+)', line, re.IGNORECASE)
-            if m:
+    def parse(path):
+        data = {"audio": "", "title": "", "artist": "", "mapper": "",
+                "background": "", "length": 0, "osu_file": path,
+                "folder": str(Path(path).parent)}
+        for line in read_osu_lines(path):
+            line = line.strip()
+            if m := re.match(r'\s*audiofilename\s*:\s*(.+)', line, re.IGNORECASE):
                 data["audio"] = m.group(1).strip()
-                print(f"  → Found AudioFilename: {data['audio']}")  # debug
-                continue
-
-            # metadata fields
-            if low.startswith("title:"):
+            elif line.lower().startswith("title:"):
                 data["title"] = line.split(":", 1)[1].strip()
-            elif low.startswith("artist:"):
+            elif line.lower().startswith("artist:"):
                 data["artist"] = line.split(":", 1)[1].strip()
-            elif low.startswith("creator:") or low.startswith("mapper:"):
+            elif line.lower().startswith("creator:"):
                 data["mapper"] = line.split(":", 1)[1].strip()
-
-            # background image (first 0,0 event)
-            if low.startswith("0,0"):
-                bgm = re.search(r'0,0,"([^"]+)"', line)
-                if bgm and not data["background"]:
-                    data["background"] = bgm.group(1)
-
-        # calculate length via Mutagen (if possible)
+            elif line.startswith("0,0") and not data["background"]:
+                if bg := re.search(r'0,0,"([^"]+)"', line):
+                    data["background"] = bg.group(1)
         try:
             audio_path = Path(data["folder"]) / data["audio"]
             mp = MP3(str(audio_path))
             data["length"] = int(mp.info.length * 1000)
         except:
             pass
-
         return data
 
-class SettingsDialog(QDialog):
-    def __init__(self, parent: "MainWindow"):
-        super().__init__(parent)
-        
-        self.main = parent
-        self.setWindowTitle("Settings")
-        self.setFixedSize(400, 350)
+class LibraryScanner(QThread):
+    done = Signal(list)
 
-        v = QVBoxLayout(self)
+    def __init__(self, folder):
+        super().__init__()
+        self.folder = folder
 
-        # Songs folder
-        h1 = QHBoxLayout()
-        h1.addWidget(QLabel("Songs Folder:"))
-        self.folderEdit = QLineEdit(self.main.osu_folder)
-        h1.addWidget(self.folderEdit)
-        b1 = QPushButton("Browse…")
-        b1.clicked.connect(self.browse_folder)
-        h1.addWidget(b1)
-        v.addLayout(h1)
+    def run(self):
+        uniq = {}
+        for root, _, files in os.walk(self.folder):
+            for fn in files:
+                if fn.lower().endswith(".osu"):
+                    try:
+                        s = OsuParser.parse(os.path.join(root, fn))
+                        key = (s["title"], s["artist"], s["mapper"])
+                        uniq.setdefault(key, s)
+                    except:
+                        pass
+        library = list(uniq.values())
+        save_cache(self.folder, library)
+        self.done.emit(library)
 
-        # Light mode
-        self.lightCheck = QCheckBox("Light Mode")
-        self.lightCheck.setChecked(self.main.light_mode)
-        v.addWidget(self.lightCheck)
-        
-        # Background Video toggle
-        self.videoCheck = QCheckBox("Enable Background Video")
-        self.videoCheck.setChecked(self.main.video_enabled)
-        v.addWidget(self.videoCheck)
-        
-        # Autoplay
-        self.autoplayCheck = QCheckBox("Autoplay on Startup")
-        self.autoplayCheck.setChecked(self.main.autoplay)
-        v.addWidget(self.autoplayCheck)
-
-        # UI opacity
-        h3 = QHBoxLayout()
-        h3.addWidget(QLabel("UI Opacity:"))
-        self.opacitySlider = QSlider(Qt.Horizontal)
-        self.opacitySlider.setRange(10, 100)
-        self.opacitySlider.setValue(int(self.main.ui_opacity * 100))
-        h3.addWidget(self.opacitySlider)
-        v.addLayout(h3)
-        
-        # Live-update UI opacity
-        self.opacitySlider.valueChanged.connect(
-            lambda val: self.main.ui_effect.setOpacity(val / 100.0)
-        )
-
-        # Hue adjustment
-        h5 = QHBoxLayout()
-        h5.addWidget(QLabel("Hue:"))
-        self.hueSlider = QSlider(Qt.Horizontal)
-        self.hueSlider.setRange(0, 360)
-        self.hueSlider.setValue(self.main.hue)
-        h5.addWidget(self.hueSlider)
-        v.addLayout(h5)
-
-        # Live‐update the background hue as you drag
-        from PySide6.QtGui import QColor
-        self.hueSlider.valueChanged.connect(
-            lambda v: self.main.bg_widget.effect.setColor(QColor.fromHsv(v, 255, 255))
-        )
-
-        # Resolution presets
-        h4 = QHBoxLayout()
-        h4.addWidget(QLabel("Resolution:"))
-        self.resCombo = QComboBox()
-        self.resolutions = {
-            "1920×1080": (1920, 1080),
-            "1280×720":  (1280, 720),
-            "854×480":   (854, 480),
-            "640×360":   (640, 360),
-            "480×270":   (480, 270),
-        }
-        self.resCombo.addItems(self.resolutions.keys())
-        cw, ch = self.main.width(), self.main.height()
-        for name, (rw, rh) in self.resolutions.items():
-            if rw == cw and rh == ch:
-                self.resCombo.setCurrentText(name)
-                break
-        h4.addWidget(self.resCombo)
-        v.addLayout(h4)
-
-        # OK / Cancel
-        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        bb.accepted.connect(self.apply)
-        bb.rejected.connect(self.reject)
-        v.addWidget(bb)
-
-    def browse_folder(self):
-        d = QFileDialog.getExistingDirectory(self, "Select osu! Songs Folder")
-        if d:
-            self.folderEdit.setText(d)
-
-    def apply(self):
-        folder  = self.folderEdit.text()
-        light   = self.lightCheck.isChecked()
-        opacity = self.opacitySlider.value() / 100.0
-        hue     = self.hueSlider.value()
-        res     = self.resCombo.currentText()
-        w, h    = self.resolutions[res]
-        video_on = self.videoCheck.isChecked()
-        autoplay = self.autoplayCheck.isChecked()
-
-        # This single call saves all settings, including hue
-        self.main.apply_settings(folder, light, opacity, w, h, hue, video_on, autoplay)
-
-        # And immediately update the effect color one last time
-        from PySide6.QtGui import QColor
-        self.main.bg_widget.effect.setColor(QColor.fromHsv(hue, 255, 255))
-        
-        self.main.save_user_settings()
-
-        self.accept()  
-        
-class BackgroundWidget(QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._pixmap = QPixmap()
-        # INSTALL A COLORIZE EFFECT:
-        self.effect = QGraphicsColorizeEffect(self)
-        self.effect.setStrength(1.0)  # full colorize
-        self.setGraphicsEffect(self.effect)
-
-    def setFrame(self, frame):
-        img = frame.toImage()
-        pm = QPixmap.fromImage(img).scaled(
-            self.size(),
-            Qt.KeepAspectRatioByExpanding,
-            Qt.SmoothTransformation
-        )
-        self._pixmap = pm
-        self.update()
-
-    def paintEvent(self, ev):
-        p = QPainter(self)
-        p.drawPixmap(0, 0, self._pixmap)
-        p.end()
-        
 class MarqueeLabel(QLabel):
     def __init__(self, *args):
         super().__init__(*args)
@@ -318,26 +132,16 @@ class MarqueeLabel(QLabel):
         self._offset = 0
         if text_w > avail:
             span = text_w - avail + 20
-            # forward scroll
             a1 = QPropertyAnimation(self, b"offset", self)
-            a1.setStartValue(0); a1.setEndValue(span)
-            a1.setDuration(span * 20)
+            a1.setStartValue(0); a1.setEndValue(span); a1.setDuration(span * 20)
             a1.setEasingCurve(QEasingCurve.Linear)
-            # pause
             p1 = QPauseAnimation(1000, self)
-            # reverse scroll
             a2 = QPropertyAnimation(self, b"offset", self)
-            a2.setStartValue(span); a2.setEndValue(0)
-            a2.setDuration(span * 20)
+            a2.setStartValue(span); a2.setEndValue(0); a2.setDuration(span * 20)
             a2.setEasingCurve(QEasingCurve.Linear)
-            # pause
             p2 = QPauseAnimation(1000, self)
-            # build sequence
             self._anim.clear()
-            self._anim.addAnimation(a1)
-            self._anim.addAnimation(p1)
-            self._anim.addAnimation(a2)
-            self._anim.addAnimation(p2)
+            for a in (a1, p1, a2, p2): self._anim.addAnimation(a)
             self._anim.setLoopCount(-1)
             self._anim.start()
         else:
@@ -353,29 +157,87 @@ class MarqueeLabel(QLabel):
     def setOffset(self, v): self._offset = v; self.update()
     offset = Property(int, offset, setOffset)
 
-class LibraryScanner(QThread):
-    done = Signal(list)
+class BackgroundWidget(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._pixmap = QPixmap()
+        self.effect = QGraphicsColorizeEffect(self)
+        self.effect.setStrength(1.0)
+        self.setGraphicsEffect(self.effect)
 
-    def __init__(self, osu_folder):
-        super().__init__()
-        self.osu_folder = osu_folder
+    def setFrame(self, frame):
+        img = frame.toImage()
+        pm = QPixmap.fromImage(img).scaled(
+            self.size(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation
+        )
+        self._pixmap = pm
+        self.update()
 
-    def run(self):
-        raw, uniq = [], {}
-        for root, _, files in os.walk(self.osu_folder):
-            for fn in files:
-                if fn.lower().endswith(".osu"):
-                    try:
-                        s = OsuParser.parse(os.path.join(root, fn))
-                        key = (s.get("title",""), s.get("artist",""), s.get("mapper",""))
-                        if key not in uniq:
-                            uniq[key] = s
-                    except:
-                        pass
-        library = list(uniq.values())
-        save_cache(self.osu_folder, library)
-        self.done.emit(library)
+    def paintEvent(self, ev):
+        QPainter(self).drawPixmap(0, 0, self._pixmap)
 
+class SettingsDialog(QDialog):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setWindowTitle("Settings")
+        self.setFixedSize(400, 350)
+        self.main = parent
+        layout = QVBoxLayout(self)
+
+        self.folderEdit = QLineEdit(parent.osu_folder)
+        browseBtn = QPushButton("Browse…")
+        browseBtn.clicked.connect(self.browse_folder)
+        h1 = QHBoxLayout(); h1.addWidget(QLabel("Songs Folder:")); h1.addWidget(self.folderEdit); h1.addWidget(browseBtn)
+        layout.addLayout(h1)
+
+        self.lightCheck = QCheckBox("Light Mode"); self.lightCheck.setChecked(parent.light_mode)
+        self.videoCheck = QCheckBox("Enable Background Video"); self.videoCheck.setChecked(parent.video_enabled)
+        self.autoplayCheck = QCheckBox("Autoplay on Startup"); self.autoplayCheck.setChecked(parent.autoplay)
+        layout.addWidget(self.lightCheck); layout.addWidget(self.videoCheck); layout.addWidget(self.autoplayCheck)
+
+        self.opacitySlider = QSlider(Qt.Horizontal)
+        self.opacitySlider.setRange(10, 100)
+        self.opacitySlider.setValue(int(parent.ui_opacity * 100))
+        self.opacitySlider.valueChanged.connect(lambda v: parent.ui_effect.setOpacity(v / 100))
+        h2 = QHBoxLayout(); h2.addWidget(QLabel("UI Opacity:")); h2.addWidget(self.opacitySlider)
+        layout.addLayout(h2)
+
+        self.hueSlider = QSlider(Qt.Horizontal)
+        self.hueSlider.setRange(0, 360); self.hueSlider.setValue(parent.hue)
+        self.hueSlider.valueChanged.connect(lambda v: parent.bg_widget.effect.setColor(QColor.fromHsv(v, 255, 255)))
+        h3 = QHBoxLayout(); h3.addWidget(QLabel("Hue:")); h3.addWidget(self.hueSlider)
+        layout.addLayout(h3)
+
+        self.resCombo = QComboBox()
+        self.resolutions = {"1920×1080": (1920, 1080), "1280×720": (1280, 720), "854×480": (854, 480), "640×360": (640, 360), "480×270": (480, 270)}
+        self.resCombo.addItems(self.resolutions)
+        current = f"{parent.width()}×{parent.height()}"
+        if current in self.resolutions:
+            self.resCombo.setCurrentText(current)
+        h4 = QHBoxLayout(); h4.addWidget(QLabel("Resolution:")); h4.addWidget(self.resCombo)
+        layout.addLayout(h4)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.apply)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def browse_folder(self):
+        d = QFileDialog.getExistingDirectory(self, "Select osu! Songs Folder")
+        if d: self.folderEdit.setText(d)
+
+    def apply(self):
+        folder = self.folderEdit.text()
+        light = self.lightCheck.isChecked()
+        opacity = self.opacitySlider.value() / 100
+        hue = self.hueSlider.value()
+        res = self.resCombo.currentText()
+        w, h = self.resolutions[res]
+        video_on = self.videoCheck.isChecked()
+        autoplay = self.autoplayCheck.isChecked()
+        self.main.apply_settings(folder, light, opacity, w, h, hue, video_on, autoplay)
+        self.accept()
+        
 class MainWindow(QMainWindow):
     def __init__(self):  
         super().__init__()
@@ -948,35 +810,19 @@ class MainWindow(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    w   = MainWindow()
-    w.show()
+    window = MainWindow()
+    window.show()
 
     import keyboard
-    from PySide6.QtCore       import QTimer
-    from PySide6.QtMultimedia import QMediaPlayer
-
-    # Global media‐key handler that re‐posts into the Qt thread
-    def _on_key(e):
-        if e.event_type != "down":
-            return
-
-        name = e.name
+    def handle_media_key(event):
+        if event.event_type != "down": return
+        name = event.name
         if name == "next track":
-            QMetaObject.invokeMethod(w, "next_song", Qt.QueuedConnection)
-
+            QMetaObject.invokeMethod(window, "next_song", Qt.QueuedConnection)
         elif name == "previous track":
-            QMetaObject.invokeMethod(w, "prev_song", Qt.QueuedConnection)
-
+            QMetaObject.invokeMethod(window, "prev_song", Qt.QueuedConnection)
         elif name == "play/pause media":
-            QMetaObject.invokeMethod(w, "toggle_play", Qt.QueuedConnection)
-    # Debug: print every media‐key event we catch
-    def _debug_key(e):
-        if e.name in ("next track", "previous track", "play/pause media") and e.event_type=="down":
-            print(f"[HOOK] {e.name!r} detected")
+            QMetaObject.invokeMethod(window, "toggle_play", Qt.QueuedConnection)
 
-    keyboard.hook(_debug_key)
-
-    # Install the keyboard hook
-    keyboard.hook(_on_key)
-
+    keyboard.hook(handle_media_key)
     sys.exit(app.exec())
