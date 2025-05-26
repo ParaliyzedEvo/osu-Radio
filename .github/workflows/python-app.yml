@@ -41,7 +41,7 @@ jobs:
           ICON_NAME="Osu!RadioIcon"
           ICONSET="${ICON_NAME}.iconset"
           mkdir -p "$ICONSET"
-          magick convert "$ICON_NAME.png" "$ICONSET/icon_1024x1024.png"
+          magick "$ICON_NAME.png" "$ICONSET/icon_1024x1024.png"
           sips -z 16 16     "$ICONSET/icon_1024x1024.png" --out "$ICONSET/icon_16x16.png"
           sips -z 32 32     "$ICONSET/icon_1024x1024.png" --out "$ICONSET/icon_16x16@2x.png"
           sips -z 32 32     "$ICONSET/icon_1024x1024.png" --out "$ICONSET/icon_32x32.png"
