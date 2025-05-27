@@ -243,6 +243,10 @@ class SettingsDialog(QDialog):
         buttons.accepted.connect(self.apply)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+        
+        # Save states for settings
+        self._original_opacity = parent.ui_opacity
+        self._original_hue = parent.hue
 
     def browse_folder(self):
         d = QFileDialog.getExistingDirectory(self, "Select osu! Songs Folder")
@@ -259,6 +263,14 @@ class SettingsDialog(QDialog):
         autoplay = self.autoplayCheck.isChecked()
         self.main.apply_settings(folder, light, opacity, w, h, hue, video_on, autoplay)
         self.accept()
+        
+    def reject(self):
+        # Restore original previewed values
+        self.main.ui_effect.setOpacity(self._original_opacity)
+        self.main.bg_widget.effect.setColor(QColor.fromHsv(self._original_hue, 255, 255))
+        self.main.ui_opacity = self._original_opacity
+        self.main.hue = self._original_hue
+        super().reject()
         
 class MainWindow(QMainWindow):
     def __init__(self):  
