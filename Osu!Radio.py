@@ -160,18 +160,40 @@ class MarqueeLabel(QLabel):
 class BackgroundWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._raw_frame = None
         self._pixmap = QPixmap()
+        self._last_size = self.size()
         self.effect = QGraphicsColorizeEffect(self)
         self.effect.setStrength(1.0)
         self.setGraphicsEffect(self.effect)
 
+        # Debounce timer for resizing
+        self._resize_timer = QTimer(self)
+        self._resize_timer.setSingleShot(True)
+        self._resize_timer.timeout.connect(self._rescale_pixmap)
+
     def setFrame(self, frame):
+        self._raw_frame = frame
+        self._last_size = self.size()
         img = frame.toImage()
-        pm = QPixmap.fromImage(img).scaled(
+        self._pixmap = QPixmap.fromImage(img).scaled(
             self.size(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation
         )
-        self._pixmap = pm
         self.update()
+
+    def resizeEvent(self, event):
+        if self._raw_frame and self.size() != self._last_size:
+            self._resize_timer.start(69)
+        super().resizeEvent(event)
+
+    def _rescale_pixmap(self):
+        if self._raw_frame:
+            self._last_size = self.size()
+            img = self._raw_frame.toImage()
+            self._pixmap = QPixmap.fromImage(img).scaled(
+                self.size(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation
+            )
+            self.update()
 
     def paintEvent(self, ev):
         QPainter(self).drawPixmap(0, 0, self._pixmap)
