@@ -500,15 +500,34 @@ class MainWindow(QMainWindow):
             user32.RegisterHotKey(0, 3, MOD_NOREPEAT, VK_MEDIA_PREV_TRACK)
         else:
             print("Global hotkeys not available on this platform.")
+            
         cached = load_cache(self.osu_folder)    
+        # Ensure osu_folder is valid
+        if not self.osu_folder or not os.path.isdir(self.osu_folder):
+            self.osu_folder = QFileDialog.getExistingDirectory(self, "Select osu! Songs Folder")
+            if not self.osu_folder:
+                sys.exit()
+            self.save_user_settings()
+
+        # Try loading cache
+        cached = load_cache(self.osu_folder)
         if cached:
             self.library = cached
-            self.queue   = list(cached)
+            self.queue = list(cached)
             self.populate_list(self.queue)
             self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
         else:
-            # no cache yet: this will do the scan and create the cache
-            self.reload_songs()
+            # No cache found: ask user to rebuild
+            from PySide6.QtWidgets import QMessageBox
+            reply = QMessageBox.question(
+                self, "Cache Missing",
+                "No cache found. Would you like to scan your osu! songs folder and build the cache?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if reply == QMessageBox.Yes:
+                self.reload_songs()
+            else:
+                sys.exit()
             
         self.apply_settings(
             self.osu_folder, self.light_mode, self.ui_opacity,
@@ -721,33 +740,37 @@ class MainWindow(QMainWindow):
 
     def reload_songs(self):
         """Populate immediately (sync if no cache), then always rescan in background."""
+        print(f"[reload_songs] Scanning folder: {self.osu_folder}")  # 🔍 DEBUG
+
         cached = load_cache(self.osu_folder)
         if cached:
-            # instant populate from cache
+            print("[reload_songs] Loaded from cache.")
             self.library = cached
-            self.queue   = list(cached)
+            self.queue = list(cached)
         else:
-            # no valid cache: do a quick synchronous scan so UI isn’t empty
+            print("[reload_songs] No valid cache found. Doing quick scan...")  # 🔍 DEBUG
             raw, uniq = [], {}
             for root, _, files in os.walk(self.osu_folder):
                 for fn in files:
                     if fn.lower().endswith(".osu"):
+                        full_path = os.path.join(root, fn)
                         try:
-                            s = OsuParser.parse(os.path.join(root, fn))
+                            s = OsuParser.parse(full_path)
                             key = (
-                                s.get("title",   "<unknown>"),
-                                s.get("artist",  "<unknown>"),
-                                s.get("mapper",  "<unknown>")
+                                s.get("title", "<unknown>"),
+                                s.get("artist", "<unknown>"),
+                                s.get("mapper", "<unknown>")
                             )
                             if key not in uniq:
                                 uniq[key] = s
-                        except:
-                            pass
+                            print(f"  ✅ Found beatmap: {s['artist']} - {s['title']}")  # 🔍 DEBUG
+                        except Exception as e:
+                            print(f"  ⚠️ Error parsing {full_path}: {e}")  # 🔍 DEBUG
             self.library = list(uniq.values())
-            self.queue   = list(self.library)
-            
-            # ─── Right here we save the cache for next time ───
+            self.queue = list(self.library)
             save_cache(self.osu_folder, self.library)
+
+        print(f"[reload_songs] Found {len(self.library)} beatmaps.")  # 🔍 DEBUG
 
         # Update UI immediately
         self.populate_list(self.queue)
