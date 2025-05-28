@@ -1,2 +1,3 @@
-keyboard==0.13.5
-mutagen==1.47.0
+keyboard>=0.13.5
+mutagen>=1.47.0
+PySide6>=6.9.0
