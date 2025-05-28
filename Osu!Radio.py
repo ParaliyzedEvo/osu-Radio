@@ -352,6 +352,8 @@ class MainWindow(QMainWindow):
         central = QWidget(self)
         self.setCentralWidget(central)
         grid = QGridLayout(central)
+        self.ui_effect = QGraphicsOpacityEffect(self.centralWidget())
+        self.centralWidget().setGraphicsEffect(self.ui_effect)
         grid.setContentsMargins(0, 0, 0, 0)
 
         # Background video widget
@@ -361,37 +363,30 @@ class MainWindow(QMainWindow):
         grid.addWidget(self.bg_widget, 0, 0)
 
         # UI overlay
-        self.ui = QWidget(central)
-        self.ui_effect = QGraphicsOpacityEffect(self.ui)
-        self.ui.setGraphicsEffect(self.ui_effect)
-        self.ui_effect.setOpacity(self.ui_opacity)
-        grid.addWidget(self.ui, 0, 0)
-        self.bg_widget.stackUnder(self.ui)
-
-        # Build UI
-        ui_layout = QVBoxLayout(self.ui)
-        ui_layout.setContentsMargins(5, 5, 5, 5)
-
-        splitter = QSplitter(Qt.Horizontal, self.ui)
-        left = QWidget(splitter)
+        left = QWidget(central)
         ll = QVBoxLayout(left)
+        self.ui_effect = QGraphicsOpacityEffect(left)
+        left.setGraphicsEffect(self.ui_effect)
+
         tl = QHBoxLayout()
         self.queue_lbl = QLabel(f"Queue: {len(self.queue)} songs")
         tl.addWidget(self.queue_lbl, 1)
+
         self.search = QLineEdit(); self.search.setPlaceholderText("Search…")
         self.search.textChanged.connect(self.filter_list)
         tl.addWidget(self.search, 2)
+
         btn_set = QPushButton()
         btn_set.setIcon(self.style().standardIcon(QStyle.SP_FileDialogDetailedView))
         btn_set.clicked.connect(self.open_settings)
         tl.addWidget(btn_set)
-        
+
         # Reload Maps button
         btn_reload = QPushButton("Reload Maps")
         btn_reload.setToolTip("Rescan osu! songs folder and update cache")
         btn_reload.clicked.connect(self.reload_songs)
-        tl.addWidget(btn_reload) 
-        
+        tl.addWidget(btn_reload)
+
         ll.addLayout(tl)
 
         self.song_list = QListWidget()
@@ -402,14 +397,11 @@ class MainWindow(QMainWindow):
         )
         ll.addWidget(self.song_list)
         self.populate_list(self.queue)
-        splitter.addWidget(left)
-
-        self.bp_preview = QLabel(splitter)
-        self.bp_preview.setAlignment(Qt.AlignCenter)
-        splitter.addWidget(self.bp_preview)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 0)
-        ui_layout.addWidget(splitter, 1)
+        grid.addWidget(left, 0, 0)
+        
+        # bg = song.get('background', '')
+        # p  = os.path.join(folder, bg)
+        # Need this for later :P
 
         # Bottom controls
         bot = QHBoxLayout()
@@ -462,7 +454,7 @@ class MainWindow(QMainWindow):
         # ensure at least ~15 chars fit before scrolling
         min_w = self.now_lbl.fontMetrics().averageCharWidth() * 15
         self.now_lbl.setMinimumWidth(min_w)
-        ui_layout.addLayout(bot)
+        ll.addLayout(bot)
 
         # video background setup & loop
         if self.autoplay:
@@ -574,7 +566,6 @@ class MainWindow(QMainWindow):
         self.ui_effect.setOpacity(opacity)
         self.setFixedSize(w, h)
         self.hue = hue
-        from PySide6.QtGui import QColor
         self.bg_widget.effect.setColor(QColor.fromHsv(hue, 255, 255))
         self.save_user_settings()
 
@@ -589,9 +580,9 @@ class MainWindow(QMainWindow):
 
     def apply_theme(self, light: bool):
         if light:
-            self.ui.setStyleSheet("background-color: rgba(255,255,255,200); color:black;")
+            self.centralWidget().setStyleSheet("background-color: rgba(255,255,255,200); color:black;")
         else:
-            self.ui.setStyleSheet("")
+            self.centralWidget().setStyleSheet("")
 
     def populate_list(self, songs):
         self.song_list.clear()
@@ -684,19 +675,6 @@ class MainWindow(QMainWindow):
         # Update UI
         self.now_lbl.setText(f"{song.get('title','')} — {song.get('artist','')}")
         self.song_list.setCurrentRow(index)
-
-        # Update beatmap background preview
-        bg = song.get('background', '')
-        p  = os.path.join(folder, bg)
-        if bg and os.path.isfile(p):
-            pix = QPixmap(p).scaled(
-                self.bp_preview.size(),
-                Qt.KeepAspectRatio,
-                Qt.SmoothTransformation
-            )
-            self.bp_preview.setPixmap(pix)
-        else:
-            self.bp_preview.clear()
 
     def next_song(self):
         if self.loop_mode == 2:  # Loop single
