@@ -3,6 +3,7 @@ import os
 import re
 import json
 import random
+import sqlite3
 from pathlib import Path
 from mutagen.mp3 import MP3
 from PySide6.QtCore import (
@@ -27,7 +28,7 @@ from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QVideoSink
 
 IS_WINDOWS = sys.platform.startswith("win")
 BASE_PATH = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
-CACHE_FILE = BASE_PATH / "library_cache.json"
+DATABASE_FILE = BASE_PATH / "songs.db"
 SETTINGS_FILE = BASE_PATH / "settings.json"
 
 if IS_WINDOWS:
@@ -44,20 +45,86 @@ WM_HOTKEY, MOD_NOREPEAT = 0x0312, 0x4000
 VK_MEDIA_PLAY_PAUSE, VK_MEDIA_NEXT_TRACK, VK_MEDIA_PREV_TRACK = 0xB3, 0xB0, 0xB1
 
 # Utility functions
+def init_db():
+    conn = sqlite3.connect(DATABASE_FILE)
+    cursor = conn.cursor()
+    # Create songs table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS songs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT,
+            artist TEXT,
+            mapper TEXT,
+            audio TEXT,
+            background TEXT,
+            length INTEGER,
+            osu_file TEXT,
+            folder TEXT,
+            UNIQUE(title, artist, mapper) 
+        )
+    """)
+    # Create metadata table for folder modification time
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS metadata (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+
 def load_cache(folder):
+    if not DATABASE_FILE.exists():
+        return None
+    init_db()
+    conn = sqlite3.connect(DATABASE_FILE)
+    cursor = conn.cursor()
     try:
-        with open(CACHE_FILE, "r") as f:
-            data = json.load(f)
-        if data.get("folder_mtime") == os.path.getmtime(folder):
-            return data["maps"]
-    except Exception:
-        pass
+        cursor.execute("SELECT value FROM metadata WHERE key = 'folder_mtime'")
+        row = cursor.fetchone()
+        if row and row[0] == str(os.path.getmtime(folder)):
+            cursor.execute("SELECT title, artist, mapper, audio, background, length, osu_file, folder FROM songs")
+            maps = []
+            for r in cursor.fetchall():
+                maps.append({
+                    "title": r[0], "artist": r[1], "mapper": r[2],
+                    "audio": r[3], "background": r[4], "length": r[5],
+                    "osu_file": r[6], "folder": r[7]
+                })
+            return maps
+    except Exception as e:
+        print(f"Error loading cache from SQLite: {e}")
+    finally:
+        conn.close()
     return None
 
 def save_cache(folder, maps):
-    with open(CACHE_FILE, "w") as f:
-        json.dump({"folder_mtime": os.path.getmtime(folder), "maps": maps}, f)
+    init_db()
+    conn = sqlite3.connect(DATABASE_FILE)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("BEGIN TRANSACTION")
+        # Clear existing songs (optional, could also do INSERT OR REPLACE)
+        # For simplicity, clear and re-insert if saving a full new list
+        cursor.execute("DELETE FROM songs")
 
+        for s_map in maps:
+            cursor.execute("""
+                INSERT OR IGNORE INTO songs (title, artist, mapper, audio, background, length, osu_file, folder)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (s_map.get("title"), s_map.get("artist"), s_map.get("mapper"),
+                  s_map.get("audio"), s_map.get("background"), s_map.get("length", 0),
+                  s_map.get("osu_file"), s_map.get("folder")))
+
+        cursor.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
+                       ('folder_mtime', str(os.path.getmtime(folder))))
+        conn.commit()
+    except Exception as e:
+        print(f"Error saving cache to SQLite: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
+        
 def read_osu_lines(path):
     for enc in ("utf-8", "utf-8-sig", "cp1251", "latin-1"):
         try:
@@ -104,18 +171,48 @@ class LibraryScanner(QThread):
 
     def run(self):
         uniq = {}
+        print(f"[LibraryScanner] Starting scan for folder: {self.folder}")
         for root, _, files in os.walk(self.folder):
+            if self.isInterruptionRequested():
+                print("[LibraryScanner] Interruption requested, stopping scan (outer loop).")
+                return
             for fn in files:
+                if self.isInterruptionRequested():
+                    print("[LibraryScanner] Interruption requested, stopping scan (inner loop).")
+                    return
                 if fn.lower().endswith(".osu"):
+                    full_path = os.path.join(root, fn)
                     try:
-                        s = OsuParser.parse(os.path.join(root, fn))
-                        key = (s["title"], s["artist"], s["mapper"])
-                        uniq.setdefault(key, s)
-                    except:
+                        s = OsuParser.parse(full_path)
+                        # Ensure essential keys exist for uniqueness, provide defaults if not
+                        title = s.get("title", f"Unknown Title - {fn}")
+                        artist = s.get("artist", "Unknown Artist")
+                        mapper = s.get("mapper", "Unknown Mapper")
+                        key = (title, artist, mapper)
+
+                        if key not in uniq: # Add if truly new based on primary metadata
+                            uniq[key] = s
+                    except Exception as e:
+                        print(f"[LibraryScanner] Error parsing {full_path}: {e}")
                         pass
+                        
+        if self.isInterruptionRequested():
+            print("[LibraryScanner] Interruption requested before saving cache.")
+            return
         library = list(uniq.values())
+        print(f"[LibraryScanner] Scan complete. Found {len(library)} unique beatmaps.")
+        
+        # Check for interruption again before potentially lengthy save operation
+        if self.isInterruptionRequested():
+            print("[LibraryScanner] Interruption requested before saving cache.")
+            return
         save_cache(self.folder, library)
+        # And again before emitting signal
+        if self.isInterruptionRequested():
+            print("[LibraryScanner] Interruption requested before emitting 'done' signal.")
+            return
         self.done.emit(library)
+        print("[LibraryScanner] 'done' signal emitted.")
 
 class MarqueeLabel(QLabel):
     def __init__(self, *args):
@@ -490,7 +587,7 @@ class MainWindow(QMainWindow):
         
         # register global media-key hotkeys
         # arguments: hWnd (0 for all windows), id, fsModifiers, vk
-        if user32:
+        if user32 and self.media_keys_enabled:
             user32.RegisterHotKey(0, 1, MOD_NOREPEAT, VK_MEDIA_PLAY_PAUSE)
             user32.RegisterHotKey(0, 2, MOD_NOREPEAT, VK_MEDIA_NEXT_TRACK)
             user32.RegisterHotKey(0, 3, MOD_NOREPEAT, VK_MEDIA_PREV_TRACK)
@@ -521,7 +618,46 @@ class MainWindow(QMainWindow):
                 QMessageBox.Yes | QMessageBox.No
             )
             if reply == QMessageBox.Yes:
-                self.reload_songs()
+                json_path = BASE_PATH / "library_cache.json"
+                if json_path.exists():
+                    try:
+                        print("[startup] Found legacy JSON cache. Importing to SQLite...")
+                        with open(json_path, "r", encoding="utf-8") as f:
+                            data = json.load(f)
+                            maps = data.get("maps", []) if isinstance(data, dict) else []
+                            print(f"[startup] ✅ Loaded JSON. Found {len(maps)} maps.")
+                            print(f"[startup] ✅ JSON loaded. Type: {type(maps)}, Length: {len(maps) if isinstance(maps, list) else 'N/A'}")
+                        if isinstance(maps, list):
+                            print(f"[startup] ✅ Loaded {len(maps)} songs from library_cache.json")
+                            save_cache(self.osu_folder, maps)
+                            print("[startup] Listing all imported beatmaps from JSON:")
+                            for s in maps:
+                                print(f"  🎵 Imported beatmap: {s['artist']} - {s['title']}")
+                            self.library = maps
+                            self.queue = list(maps)
+                            self.populate_list(self.queue)
+                            self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
+                            print(f"[startup] Imported {len(maps)} maps from legacy JSON.")
+                            # 🔥 Delete old cache file
+                            json_path.unlink()
+                            print("[startup] Deleted library_cache.json.")
+                            # Import was successful, now load from SQLite                           
+                            cached = load_cache(self.osu_folder)
+                            if cached:
+                                self.library = cached
+                                self.queue = list(cached)
+                                self.populate_list(self.queue)
+                                self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
+                                print(f"[startup] ✅ Confirmed import into SQLite. {len(cached)} maps loaded.")
+                                return
+                            else:
+                                print("[startup] ❌ Failed to load from SQLite after JSON import, doing full scan...")
+                                self.reload_songs()
+                    except Exception as e:
+                        import traceback
+                        print(f"[startup] Failed to import from JSON cache: {e}")
+                        # If JSON fails or doesn't exist, fall back to full scan
+                        self.reload_songs()
             else:
                 sys.exit()
             
@@ -623,6 +759,7 @@ class MainWindow(QMainWindow):
             item = QListWidgetItem(f"{song['artist']} - {song['title']}")
             item.setData(Qt.UserRole, song)
             self.song_list.addItem(item)
+        self.song_list.viewport().update()
 
     def filter_list(self, text):
         t = text.lower().strip()
@@ -636,7 +773,7 @@ class MainWindow(QMainWindow):
                 or t in s['mapper'].lower()
             ]
             self.populate_list(hits)
-        # self.song_list.setCurrentRow(self.current_index)
+        self.song_list.viewport().update()
 
     def toggle_loop_mode(self):
         self.loop_mode = (self.loop_mode + 1) % 3
@@ -752,6 +889,16 @@ class MainWindow(QMainWindow):
     def reload_songs(self):
         """Populate immediately (sync if no cache), then always rescan in background."""
         print(f"[reload_songs] Scanning folder: {self.osu_folder}")  # 🔍 DEBUG
+        
+        # Stop and wait for any existing scanner thread
+        if hasattr(self, "_scanner") and self._scanner.isRunning():
+            print("[reload_songs] Previous scanner running. Requesting interruption...")
+            self._scanner.requestInterruption()
+            if not self._scanner.wait(5000):
+                print("[reload_songs] Scanner thread did not terminate in time. Forcing termination.")
+                self._scanner.terminate() # Force terminate if wait fails
+                self._scanner.wait() # Wait for termination to complete
+            print("[reload_songs] Previous scanner stopped.")
 
         cached = load_cache(self.osu_folder)
         if cached:
@@ -781,13 +928,14 @@ class MainWindow(QMainWindow):
             self.queue = list(self.library)
             save_cache(self.osu_folder, self.library)
 
-        print(f"[reload_songs] Found {len(self.library)} beatmaps.")  # 🔍 DEBUG
+        print(f"[reload_songs] ✅ Reloaded {len(self.library)} songs from full folder scan")
 
         # Update UI immediately
         self.populate_list(self.queue)
         self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
 
         # Kick off a background thread to re-scan (and re-cache) later
+        print("[reload_songs] Starting new background scanner thread...")
         self._scanner = LibraryScanner(self.osu_folder)
         self._scanner.done.connect(self._on_reload_complete)
         self._scanner.start()
@@ -848,16 +996,16 @@ class MainWindow(QMainWindow):
         self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
 
     def closeEvent(self, ev):
-        # 0) stop the scanner thread (if it’s still running)
-        try:
-            if hasattr(self, "_scanner") and self._scanner.isRunning():
-                self._scanner.quit()
-                self._scanner.wait(500)  # wait up to 0.5s
-        except:
-            pass
+        # 0) stop the scanner thread (if it's still running)
+        if hasattr(self, "_scanner") and self._scanner.isRunning():
+            print("[closeEvent] Scanner thread running. Requesting interruption...")
+            self._scanner.requestInterruption()
+            if not self._scanner.wait(5000):
+                print("[closeEvent] Scanner thread did not terminate in time during close.")
+        print("[closeEvent] Proceeding with close.")
 
         # 1) Unregister global hotkeys
-        if user32:
+        if user32 and self.media_keys_enabled:
             user32.UnregisterHotKey(0, 1)
             user32.UnregisterHotKey(0, 2)
             user32.UnregisterHotKey(0, 3)
