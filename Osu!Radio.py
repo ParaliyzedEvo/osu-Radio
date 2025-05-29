@@ -215,7 +215,8 @@ class SettingsDialog(QDialog):
         self.lightCheck = QCheckBox("Light Mode"); self.lightCheck.setChecked(parent.light_mode)
         self.videoCheck = QCheckBox("Enable Background Video"); self.videoCheck.setChecked(parent.video_enabled)
         self.autoplayCheck = QCheckBox("Autoplay on Startup"); self.autoplayCheck.setChecked(parent.autoplay)
-        layout.addWidget(self.lightCheck); layout.addWidget(self.videoCheck); layout.addWidget(self.autoplayCheck)
+        self.mediaKeyCheck = QCheckBox("Enable Media Key Support"); self.mediaKeyCheck.setChecked(parent.media_keys_enabled)
+        layout.addWidget(self.lightCheck); layout.addWidget(self.videoCheck); layout.addWidget(self.autoplayCheck); layout.addWidget(self.mediaKeyCheck)
 
         self.opacitySlider = QSlider(Qt.Horizontal)
         self.opacitySlider.setRange(10, 100)
@@ -261,7 +262,8 @@ class SettingsDialog(QDialog):
         w, h = self.resolutions[res]
         video_on = self.videoCheck.isChecked()
         autoplay = self.autoplayCheck.isChecked()
-        self.main.apply_settings(folder, light, opacity, w, h, hue, video_on, autoplay)
+        media_keys = self.mediaKeyCheck.isChecked()
+        self.main.apply_settings(folder, light, opacity, w, h, hue, video_on, autoplay, media_keys)
         self.accept()
         
     def reject(self):
@@ -279,6 +281,7 @@ class MainWindow(QMainWindow):
         self.library = []
         self.queue   = []
         self.current_index = 0
+        self.media_key_listener = None
         
         if sys.platform == "darwin":
             icon = "Osu!RadioIcon.icns"
@@ -311,13 +314,14 @@ class MainWindow(QMainWindow):
         if not self.osu_folder:
             sys.exit()
 
-        self.light_mode     = settings.get("light_mode", False)
-        self.ui_opacity     = settings.get("ui_opacity", 0.75)
-        self.hue            = settings.get("hue", 240)
-        self.loop_mode      = settings.get("loop_mode", 0)
-        self.video_enabled  = settings.get("video_enabled", True)
-        self.autoplay       = settings.get("autoplay", False)
-        res                 = settings.get("resolution", "854×480")
+        self.light_mode         = settings.get("light_mode", False)
+        self.ui_opacity         = settings.get("ui_opacity", 0.75)
+        self.hue                = settings.get("hue", 240)
+        self.loop_mode          = settings.get("loop_mode", 0)
+        self.video_enabled      = settings.get("video_enabled", True)
+        self.autoplay           = settings.get("autoplay", False)
+        self.media_keys_enabled = settings.get("media_keys_enabled", True)
+        res                     = settings.get("resolution", "854×480")
         rw, rh = (854, 480)
         if res and "×" in res:
             try:
@@ -523,7 +527,8 @@ class MainWindow(QMainWindow):
             
         self.apply_settings(
             self.osu_folder, self.light_mode, self.ui_opacity,
-            w, h, self.hue, self.video_enabled, self.autoplay
+            w, h, self.hue, self.video_enabled, self.autoplay,
+            self.media_keys_enabled
         )
 
     def _slider_jump_to_click(self):
@@ -542,7 +547,7 @@ class MainWindow(QMainWindow):
             self.bg_player.setPosition(0)
             self.bg_player.play()
 
-    def apply_settings(self, folder, light, opacity, w, h, hue, video_on, autoplay):
+    def apply_settings(self, folder, light, opacity, w, h, hue, video_on, autoplay, media_keys):
         if folder != self.osu_folder and os.path.isdir(folder):
             self.osu_folder = folder
             self.reload_songs()
@@ -555,6 +560,9 @@ class MainWindow(QMainWindow):
         self.hue = hue
         self.video_enabled = video_on
         self.autoplay = autoplay
+        if self.media_keys_enabled != media_keys:
+            self.media_keys_enabled = media_keys
+            self.update_media_key_listener()
 
         self.setFixedSize(w, h)
         self.save_user_settings()
@@ -577,6 +585,31 @@ class MainWindow(QMainWindow):
                 self.bg_player.play()
             else:
                 self.bg_player.pause()
+                
+    def update_media_key_listener(self):
+        try:
+            if self.media_key_listener:
+                self.media_key_listener.stop()
+                self.media_key_listener = None
+        except Exception as e:
+            print("Failed to stop media key listener:", e)
+
+        if self.media_keys_enabled:
+            try:
+                from pynput import keyboard as kb
+
+                def on_press(key):
+                    if key == kb.Key.media_next:
+                        QMetaObject.invokeMethod(self, "next_song", Qt.QueuedConnection)
+                    elif key == kb.Key.media_previous:
+                        QMetaObject.invokeMethod(self, "prev_song", Qt.QueuedConnection)
+                    elif key == kb.Key.media_play_pause:
+                        QMetaObject.invokeMethod(self, "toggle_play", Qt.QueuedConnection)
+
+                self.media_key_listener = kb.Listener(on_press=on_press)
+                self.media_key_listener.start()
+            except Exception as e:
+                print("Failed to start media key listener:", e)
 
     def apply_theme(self, light: bool):
         if light:
@@ -779,6 +812,7 @@ class MainWindow(QMainWindow):
             "loop_mode": self.loop_mode,
             "video_enabled": self.video_enabled,
             "autoplay": self.autoplay,
+            "media_keys_enabled": self.media_keys_enabled,
             "resolution": f"{self.width()}×{self.height()}",
         }
         try:
@@ -847,17 +881,7 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()
+    
+    window.update_media_key_listener()
 
-    import keyboard
-    def handle_media_key(event):
-        if event.event_type != "down": return
-        name = event.name
-        if name == "next track":
-            QMetaObject.invokeMethod(window, "next_song", Qt.QueuedConnection)
-        elif name == "previous track":
-            QMetaObject.invokeMethod(window, "prev_song", Qt.QueuedConnection)
-        elif name == "play/pause media":
-            QMetaObject.invokeMethod(window, "toggle_play", Qt.QueuedConnection)
-
-    keyboard.hook(handle_media_key)
     sys.exit(app.exec())
