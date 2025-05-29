@@ -176,3 +176,4 @@ cython_debug/
 # Configs
 *.json
 dist/Osu!Radio/*.json
+songs.db
