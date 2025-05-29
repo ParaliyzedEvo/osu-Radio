@@ -107,7 +107,7 @@ def save_cache(folder, maps):
         # Clear existing songs (optional, could also do INSERT OR REPLACE)
         # For simplicity, clear and re-insert if saving a full new list
         cursor.execute("DELETE FROM songs")
-        
+
         for s_map in maps:
             cursor.execute("""
                 INSERT OR IGNORE INTO songs (title, artist, mapper, audio, background, length, osu_file, folder)
@@ -115,7 +115,7 @@ def save_cache(folder, maps):
             """, (s_map.get("title"), s_map.get("artist"), s_map.get("mapper"),
                   s_map.get("audio"), s_map.get("background"), s_map.get("length", 0),
                   s_map.get("osu_file"), s_map.get("folder")))
-        
+
         cursor.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
                        ('folder_mtime', str(os.path.getmtime(folder))))
         conn.commit()
@@ -124,7 +124,7 @@ def save_cache(folder, maps):
         conn.rollback()
     finally:
         conn.close()
-
+        
 def read_osu_lines(path):
     for enc in ("utf-8", "utf-8-sig", "cp1251", "latin-1"):
         try:
@@ -176,12 +176,10 @@ class LibraryScanner(QThread):
             if self.isInterruptionRequested():
                 print("[LibraryScanner] Interruption requested, stopping scan (outer loop).")
                 return
-
             for fn in files:
                 if self.isInterruptionRequested():
                     print("[LibraryScanner] Interruption requested, stopping scan (inner loop).")
                     return
-
                 if fn.lower().endswith(".osu"):
                     full_path = os.path.join(root, fn)
                     try:
@@ -191,17 +189,16 @@ class LibraryScanner(QThread):
                         artist = s.get("artist", "Unknown Artist")
                         mapper = s.get("mapper", "Unknown Mapper")
                         key = (title, artist, mapper)
-                        
+
                         if key not in uniq: # Add if truly new based on primary metadata
                             uniq[key] = s
                     except Exception as e:
                         print(f"[LibraryScanner] Error parsing {full_path}: {e}")
                         pass
-        
+                        
         if self.isInterruptionRequested():
             print("[LibraryScanner] Interruption requested before saving cache.")
             return
-
         library = list(uniq.values())
         print(f"[LibraryScanner] Scan complete. Found {len(library)} unique beatmaps.")
         
@@ -209,14 +206,11 @@ class LibraryScanner(QThread):
         if self.isInterruptionRequested():
             print("[LibraryScanner] Interruption requested before saving cache.")
             return
-            
         save_cache(self.folder, library)
-        
         # And again before emitting signal
         if self.isInterruptionRequested():
             print("[LibraryScanner] Interruption requested before emitting 'done' signal.")
             return
-            
         self.done.emit(library)
         print("[LibraryScanner] 'done' signal emitted.")
 
@@ -318,7 +312,8 @@ class SettingsDialog(QDialog):
         self.lightCheck = QCheckBox("Light Mode"); self.lightCheck.setChecked(parent.light_mode)
         self.videoCheck = QCheckBox("Enable Background Video"); self.videoCheck.setChecked(parent.video_enabled)
         self.autoplayCheck = QCheckBox("Autoplay on Startup"); self.autoplayCheck.setChecked(parent.autoplay)
-        layout.addWidget(self.lightCheck); layout.addWidget(self.videoCheck); layout.addWidget(self.autoplayCheck)
+        self.mediaKeyCheck = QCheckBox("Enable Media Key Support"); self.mediaKeyCheck.setChecked(parent.media_keys_enabled)
+        layout.addWidget(self.lightCheck); layout.addWidget(self.videoCheck); layout.addWidget(self.autoplayCheck); layout.addWidget(self.mediaKeyCheck)
 
         self.opacitySlider = QSlider(Qt.Horizontal)
         self.opacitySlider.setRange(10, 100)
@@ -364,7 +359,8 @@ class SettingsDialog(QDialog):
         w, h = self.resolutions[res]
         video_on = self.videoCheck.isChecked()
         autoplay = self.autoplayCheck.isChecked()
-        self.main.apply_settings(folder, light, opacity, w, h, hue, video_on, autoplay)
+        media_keys = self.mediaKeyCheck.isChecked()
+        self.main.apply_settings(folder, light, opacity, w, h, hue, video_on, autoplay, media_keys)
         self.accept()
         
     def reject(self):
@@ -382,6 +378,7 @@ class MainWindow(QMainWindow):
         self.library = []
         self.queue   = []
         self.current_index = 0
+        self.media_key_listener = None
         
         if sys.platform == "darwin":
             icon = "Osu!RadioIcon.icns"
@@ -414,13 +411,14 @@ class MainWindow(QMainWindow):
         if not self.osu_folder:
             sys.exit()
 
-        self.light_mode     = settings.get("light_mode", False)
-        self.ui_opacity     = settings.get("ui_opacity", 0.75)
-        self.hue            = settings.get("hue", 240)
-        self.loop_mode      = settings.get("loop_mode", 0)
-        self.video_enabled  = settings.get("video_enabled", True)
-        self.autoplay       = settings.get("autoplay", False)
-        res                 = settings.get("resolution", "854×480")
+        self.light_mode         = settings.get("light_mode", False)
+        self.ui_opacity         = settings.get("ui_opacity", 0.75)
+        self.hue                = settings.get("hue", 240)
+        self.loop_mode          = settings.get("loop_mode", 0)
+        self.video_enabled      = settings.get("video_enabled", True)
+        self.autoplay           = settings.get("autoplay", False)
+        self.media_keys_enabled = settings.get("media_keys_enabled", True)
+        res                     = settings.get("resolution", "854×480")
         rw, rh = (854, 480)
         if res and "×" in res:
             try:
@@ -466,10 +464,10 @@ class MainWindow(QMainWindow):
         grid.addWidget(self.bg_widget, 0, 0)
 
         # UI overlay
-        self.left_panel = QWidget(central)
-        ll = QVBoxLayout(self.left_panel)
-        self.ui_effect = QGraphicsOpacityEffect(self.left_panel)
-        self.left_panel.setGraphicsEffect(self.ui_effect)
+        left = QWidget(central)
+        ll = QVBoxLayout(left)
+        self.ui_effect = QGraphicsOpacityEffect(left)
+        left.setGraphicsEffect(self.ui_effect)
 
         tl = QHBoxLayout()
         self.queue_lbl = QLabel(f"Queue: {len(self.queue)} songs")
@@ -500,7 +498,7 @@ class MainWindow(QMainWindow):
         )
         ll.addWidget(self.song_list)
         self.populate_list(self.queue)
-        grid.addWidget(self.left_panel, 0, 0)
+        grid.addWidget(left, 0, 0)
         
         # bg = song.get('background', '')
         # p  = os.path.join(folder, bg)
@@ -589,7 +587,7 @@ class MainWindow(QMainWindow):
         
         # register global media-key hotkeys
         # arguments: hWnd (0 for all windows), id, fsModifiers, vk
-        if user32:
+        if user32 and self.media_keys_enabled:
             user32.RegisterHotKey(0, 1, MOD_NOREPEAT, VK_MEDIA_PLAY_PAUSE)
             user32.RegisterHotKey(0, 2, MOD_NOREPEAT, VK_MEDIA_NEXT_TRACK)
             user32.RegisterHotKey(0, 3, MOD_NOREPEAT, VK_MEDIA_PREV_TRACK)
@@ -620,13 +618,53 @@ class MainWindow(QMainWindow):
                 QMessageBox.Yes | QMessageBox.No
             )
             if reply == QMessageBox.Yes:
-                self.reload_songs()
+                json_path = BASE_PATH / "library_cache.json"
+                if json_path.exists():
+                    try:
+                        print("[startup] Found legacy JSON cache. Importing to SQLite...")
+                        with open(json_path, "r", encoding="utf-8") as f:
+                            data = json.load(f)
+                            maps = data.get("maps", []) if isinstance(data, dict) else []
+                            print(f"[startup] ✅ Loaded JSON. Found {len(maps)} maps.")
+                            print(f"[startup] ✅ JSON loaded. Type: {type(maps)}, Length: {len(maps) if isinstance(maps, list) else 'N/A'}")
+                        if isinstance(maps, list):
+                            print(f"[startup] ✅ Loaded {len(maps)} songs from library_cache.json")
+                            save_cache(self.osu_folder, maps)
+                            print("[startup] Listing all imported beatmaps from JSON:")
+                            for s in maps:
+                                print(f"  🎵 Imported beatmap: {s['artist']} - {s['title']}")
+                            self.library = maps
+                            self.queue = list(maps)
+                            self.populate_list(self.queue)
+                            self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
+                            print(f"[startup] Imported {len(maps)} maps from legacy JSON.")
+                            # 🔥 Delete old cache file
+                            json_path.unlink()
+                            print("[startup] Deleted library_cache.json.")
+                            # Import was successful, now load from SQLite                           
+                            cached = load_cache(self.osu_folder)
+                            if cached:
+                                self.library = cached
+                                self.queue = list(cached)
+                                self.populate_list(self.queue)
+                                self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
+                                print(f"[startup] ✅ Confirmed import into SQLite. {len(cached)} maps loaded.")
+                                return
+                            else:
+                                print("[startup] ❌ Failed to load from SQLite after JSON import, doing full scan...")
+                                self.reload_songs()
+                    except Exception as e:
+                        import traceback
+                        print(f"[startup] Failed to import from JSON cache: {e}")
+                        # If JSON fails or doesn't exist, fall back to full scan
+                        self.reload_songs()
             else:
                 sys.exit()
             
         self.apply_settings(
             self.osu_folder, self.light_mode, self.ui_opacity,
-            w, h, self.hue, self.video_enabled, self.autoplay
+            w, h, self.hue, self.video_enabled, self.autoplay,
+            self.media_keys_enabled
         )
 
     def _slider_jump_to_click(self):
@@ -645,7 +683,7 @@ class MainWindow(QMainWindow):
             self.bg_player.setPosition(0)
             self.bg_player.play()
 
-    def apply_settings(self, folder, light, opacity, w, h, hue, video_on, autoplay):
+    def apply_settings(self, folder, light, opacity, w, h, hue, video_on, autoplay, media_keys):
         if folder != self.osu_folder and os.path.isdir(folder):
             self.osu_folder = folder
             self.reload_songs()
@@ -658,6 +696,9 @@ class MainWindow(QMainWindow):
         self.hue = hue
         self.video_enabled = video_on
         self.autoplay = autoplay
+        if self.media_keys_enabled != media_keys:
+            self.media_keys_enabled = media_keys
+            self.update_media_key_listener()
 
         self.setFixedSize(w, h)
         self.save_user_settings()
@@ -680,13 +721,36 @@ class MainWindow(QMainWindow):
                 self.bg_player.play()
             else:
                 self.bg_player.pause()
+                
+    def update_media_key_listener(self):
+        try:
+            if self.media_key_listener:
+                self.media_key_listener.stop()
+                self.media_key_listener = None
+        except Exception as e:
+            print("Failed to stop media key listener:", e)
+
+        if self.media_keys_enabled:
+            try:
+                from pynput import keyboard as kb
+
+                def on_press(key):
+                    if key == kb.Key.media_next:
+                        QMetaObject.invokeMethod(self, "next_song", Qt.QueuedConnection)
+                    elif key == kb.Key.media_previous:
+                        QMetaObject.invokeMethod(self, "prev_song", Qt.QueuedConnection)
+                    elif key == kb.Key.media_play_pause:
+                        QMetaObject.invokeMethod(self, "toggle_play", Qt.QueuedConnection)
+
+                self.media_key_listener = kb.Listener(on_press=on_press)
+                self.media_key_listener.start()
+            except Exception as e:
+                print("Failed to start media key listener:", e)
 
     def apply_theme(self, light: bool):
         if light:
-            self.left_panel.setStyleSheet("background-color: rgba(230, 230, 230, 240); color: black;")
-            self.centralWidget().setStyleSheet("background-color: rgba(255,255,255,200); color:black;") 
+            self.centralWidget().setStyleSheet("background-color: rgba(255,255,255,200); color:black;")
         else:
-            self.left_panel.setStyleSheet("background-color: rgba(45, 45, 45, 240); color: white;")
             self.centralWidget().setStyleSheet("")
 
     def populate_list(self, songs):
@@ -825,7 +889,7 @@ class MainWindow(QMainWindow):
     def reload_songs(self):
         """Populate immediately (sync if no cache), then always rescan in background."""
         print(f"[reload_songs] Scanning folder: {self.osu_folder}")  # 🔍 DEBUG
-
+        
         # Stop and wait for any existing scanner thread
         if hasattr(self, "_scanner") and self._scanner.isRunning():
             print("[reload_songs] Previous scanner running. Requesting interruption...")
@@ -864,7 +928,7 @@ class MainWindow(QMainWindow):
             self.queue = list(self.library)
             save_cache(self.osu_folder, self.library)
 
-        print(f"[reload_songs] Found {len(self.library)} beatmaps.")  # 🔍 DEBUG
+        print(f"[reload_songs] ✅ Reloaded {len(self.library)} songs from full folder scan")
 
         # Update UI immediately
         self.populate_list(self.queue)
@@ -896,6 +960,7 @@ class MainWindow(QMainWindow):
             "loop_mode": self.loop_mode,
             "video_enabled": self.video_enabled,
             "autoplay": self.autoplay,
+            "media_keys_enabled": self.media_keys_enabled,
             "resolution": f"{self.width()}×{self.height()}",
         }
         try:
@@ -940,7 +1005,7 @@ class MainWindow(QMainWindow):
         print("[closeEvent] Proceeding with close.")
 
         # 1) Unregister global hotkeys
-        if user32:
+        if user32 and self.media_keys_enabled:
             user32.UnregisterHotKey(0, 1)
             user32.UnregisterHotKey(0, 2)
             user32.UnregisterHotKey(0, 3)
@@ -964,17 +1029,7 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()
+    
+    window.update_media_key_listener()
 
-    import keyboard
-    def handle_media_key(event):
-        if event.event_type != "down": return
-        name = event.name
-        if name == "next track":
-            QMetaObject.invokeMethod(window, "next_song", Qt.QueuedConnection)
-        elif name == "previous track":
-            QMetaObject.invokeMethod(window, "prev_song", Qt.QueuedConnection)
-        elif name == "play/pause media":
-            QMetaObject.invokeMethod(window, "toggle_play", Qt.QueuedConnection)
-
-    keyboard.hook(handle_media_key)
     sys.exit(app.exec())
