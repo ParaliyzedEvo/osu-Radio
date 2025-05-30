@@ -45,7 +45,11 @@ jobs:
               libxcb-icccm4 \
               libxcb-keysyms1 \
               libxkbcommon-x11-0 \
-              libpulse0
+              libpulse0 \
+              xvfb
+          
+            echo "DISPLAY=:99" >> $GITHUB_ENV
+            nohup Xvfb :99 -screen 0 1024x768x16 > /dev/null 2>&1 &
           fi
         shell: bash
         
@@ -78,7 +82,6 @@ jobs:
       - name: Build app (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
-          echo "DISPLAY=:99" >> $GITHUB_ENV
           pyinstaller Osu!Radio-linux.spec
 
       - name: Build app (macOS)
