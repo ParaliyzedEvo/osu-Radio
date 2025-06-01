@@ -742,7 +742,7 @@ class MainWindow(QMainWindow):
     def format_time(self, ms):
         mins, secs = divmod(ms // 1000, 60)
         return f"{mins}:{secs:02d}"
-
+        
     def eventFilter(self, source, event):
         if source == self.slider and event.type() == QEvent.MouseMove:
             if self.audio.duration() > 0:
