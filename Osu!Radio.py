@@ -9,7 +9,8 @@ from mutagen.mp3 import MP3
 from PySide6.QtCore import (
     Qt, QUrl, QTimer, QThread, QMetaObject,
     QPropertyAnimation, QEasingCurve, Property,
-    QSequentialAnimationGroup, QPauseAnimation, Signal
+    QSequentialAnimationGroup, QPauseAnimation, Signal,
+    QEvent
 )
 from PySide6.QtGui import (
     QIcon, QPixmap, QPainter, QColor,
@@ -505,10 +506,23 @@ class MainWindow(QMainWindow):
         # Need this for later :P
 
         # Bottom controls
+        timeline_layout = QHBoxLayout()
+        self.elapsed_label = QLabel("0:00")
+        self.total_label = QLabel("0:00")
+        timeline_layout.addWidget(self.elapsed_label, alignment=Qt.AlignLeft)
+        timeline_layout.addStretch()
+        timeline_layout.addWidget(self.total_label, alignment=Qt.AlignRight)
+        ll.addLayout(timeline_layout)
         bot = QHBoxLayout()
         vol = QSlider(Qt.Horizontal)
+        self.volume_label = QLabel("30%")
+        vol.valueChanged.connect(lambda v: self.volume_label.setText(f"{v}%"))
         vol.setRange(0, 100)
         vol.setValue(30)
+        volume_layout = QHBoxLayout()
+        volume_layout.addStretch()
+        volume_layout.addWidget(self.volume_label, alignment=Qt.AlignRight)
+        ll.addLayout(volume_layout)
         self.audio_out.setVolume(0.3)
         vol.valueChanged.connect(lambda v: self.audio_out.setVolume(v/100))
         bot.addWidget(vol, 1)
@@ -540,6 +554,8 @@ class MainWindow(QMainWindow):
 
         # replaced sliderMoved with sliderReleased
         self.slider = QSlider(Qt.Horizontal)
+        self.slider.setMouseTracking(True)
+        self.slider.installEventFilter(self)
         # Make the slider expand/shrink to fill available space
         self.slider.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.slider.sliderMoved.connect(self.seek)
@@ -666,6 +682,16 @@ class MainWindow(QMainWindow):
             w, h, self.hue, self.video_enabled, self.autoplay,
             self.media_keys_enabled
         )
+
+    def eventFilter(self, source, event):
+        if source == self.slider and event.type() == QEvent.MouseMove:
+            if self.audio.duration() > 0:
+                x = event.position().x()
+                ratio = x / self.slider.width()
+                pos = int(ratio * self.audio.duration())
+                mins, secs = divmod(pos // 1000, 60)
+                QToolTip.showText(QCursor.pos(), f"{mins}:{secs:02d}")
+        return super().eventFilter(source, event)
 
     def _slider_jump_to_click(self):
         # Get position relative to the slider width
@@ -879,9 +905,13 @@ class MainWindow(QMainWindow):
     def update_position(self, p):
         if not self.slider.isSliderDown():
             self.slider.setValue(p)
+        mins, secs = divmod(p // 1000, 60)
+        self.elapsed_label.setText(f"{mins}:{secs:02d}")
 
     def update_duration(self, d):
         self.slider.setRange(0, d)
+        mins, secs = divmod(d // 1000, 60)
+        self.total_label.setText(f"{mins}:{secs:02d}")
 
     def open_settings(self):
         SettingsDialog(self).exec()
