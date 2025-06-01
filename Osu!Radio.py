@@ -9,7 +9,8 @@ from mutagen.mp3 import MP3
 from PySide6.QtCore import (
     Qt, QUrl, QTimer, QThread, QMetaObject,
     QPropertyAnimation, QEasingCurve, Property,
-    QSequentialAnimationGroup, QPauseAnimation, Signal
+    QSequentialAnimationGroup, QPauseAnimation, Signal,
+    QEvent
 )
 from PySide6.QtGui import (
     QIcon, QPixmap, QPainter, QColor,
@@ -19,7 +20,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel, QFileDialog,
     QHBoxLayout, QVBoxLayout, QListWidget, QListWidgetItem,
-    QPushButton, QLineEdit, QSlider, QStyle,
+    QPushButton, QLineEdit, QSlider, QStyle, QStackedLayout,
     QDialog, QDialogButtonBox, QCheckBox, QComboBox,
     QGraphicsOpacityEffect, QGraphicsColorizeEffect,
     QMenu, QGridLayout, QSplitter, QToolTip, QSizePolicy
@@ -504,26 +505,107 @@ class MainWindow(QMainWindow):
         # p  = os.path.join(folder, bg)
         # Need this for later :P
 
-        # Bottom controls
+        # Create bottom control layout
         bot = QHBoxLayout()
+
+        # ── Volume slider + overlay ──
         vol = QSlider(Qt.Horizontal)
         vol.setRange(0, 100)
         vol.setValue(30)
+        self.volume_label = QLabel("30%")
+        vol.valueChanged.connect(lambda v: self.volume_label.setText(f"{v}%"))
+        self.volume_label.setVisible(True)
+        vol.valueChanged.connect(lambda v: self.audio_out.setVolume(v / 100))
         self.audio_out.setVolume(0.3)
-        vol.valueChanged.connect(lambda v: self.audio_out.setVolume(v/100))
-        bot.addWidget(vol, 1)
+
+        vol_widget = QWidget()
+        vol_widget.setMinimumHeight(30)
+        vol_widget.setMaximumHeight(30)
+        vol_layout = QVBoxLayout(vol_widget)
+        vol_layout.setContentsMargins(0, 0, 0, 0)
+        vol_layout.setSpacing(0)
+        vol_layout.addWidget(vol)
+
+        self.volume_label.setParent(vol_widget)
+        self.volume_label.move(vol_widget.width() - self.volume_label.width() - 7, -4)
+        self.volume_label.raise_()
+        self.volume_label.show()
+
+        vol_widget.resizeEvent = lambda event: self.volume_label.move(
+            vol_widget.width() - self.volume_label.width() - 7, -4
+        )
+        bot.addWidget(vol_widget, 1)
+
+        # ── Seek slider + overlay ──
+        class SeekSlider(QSlider):
+            seekRequested = Signal(int)
+            def mousePressEvent(self, event):
+                if event.button() == Qt.LeftButton:
+                    x = event.position().x() if hasattr(event, "position") else event.x()
+                    ratio = x / self.width()
+                    new_val = int(ratio * self.maximum())
+                    self.setValue(new_val)
+                    self.seekRequested.emit(new_val)
+                super().mousePressEvent(event)
+
+        self.slider = SeekSlider(Qt.Horizontal)
+        self.slider.seekRequested.connect(self.seek)
+        self.slider.setMouseTracking(True)
+        self.slider.installEventFilter(self)
+        self.slider.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+        # Drag tracking logic
+        self.slider.sliderPressed.connect(lambda: setattr(self, "_user_dragging", True))
+        self.slider.sliderReleased.connect(lambda: (
+            setattr(self, "_user_dragging", False),
+            self.audio.setPosition(self.slider.value())
+        ))
+
+        self.slider.valueChanged.connect(lambda v: (
+            self.elapsed_label.setText(self.format_time(v))
+            if getattr(self, "_user_dragging", False) else None
+        ))
+
+        self.elapsed_label = QLabel("0:00")
+        self.total_label = QLabel("0:00")
+
+        seek_widget = QWidget()
+        seek_widget.setMinimumHeight(30)
+        seek_widget.setMaximumHeight(30)
+        seek_layout = QVBoxLayout(seek_widget)
+        seek_layout.setContentsMargins(0, 0, 0, 0)
+        seek_layout.setSpacing(0)
+        seek_layout.addWidget(self.slider)
+
+        self.elapsed_label.setParent(seek_widget)
+        self.total_label.setParent(seek_widget)
+        self.elapsed_label.show()
+        self.total_label.show()
+
+        def position_seek_labels():
+            self.elapsed_label.adjustSize()
+            self.total_label.adjustSize()
+            self.elapsed_label.move(5, -4)
+            self.total_label.move(seek_widget.width() - self.total_label.width() - 5, -4)
+            self.elapsed_label.raise_()
+            self.total_label.raise_()
+
+        seek_widget.resizeEvent = lambda event: position_seek_labels()
+        QTimer.singleShot(0, lambda: position_seek_labels())
+
+        bot.addWidget(seek_widget, 2)
         
+        # ── Playback and info label ──
         self.loop_btn = QPushButton()
         self.loop_btn.setToolTip("Loop: Off")
         self.update_loop_icon()
         self.loop_btn.clicked.connect(self.toggle_loop_mode)
         bot.addWidget(self.loop_btn)
 
-        b_shuf = QPushButton()
+        b_shuf = QPushButton("🔀")
         b_shuf.setFixedHeight(24)
         b_shuf.setFixedWidth(34)
         b_shuf.setStyleSheet("font-size: 15px;")
-        b_shuf.setText("🔀")
         b_shuf.clicked.connect(self.shuffle)
         bot.addWidget(b_shuf)
 
@@ -538,23 +620,13 @@ class MainWindow(QMainWindow):
             b.clicked.connect(fn)
             bot.addWidget(b)
 
-        # replaced sliderMoved with sliderReleased
-        self.slider = QSlider(Qt.Horizontal)
-        # Make the slider expand/shrink to fill available space
-        self.slider.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.slider.sliderMoved.connect(self.seek)
-        self.slider.sliderReleased.connect(lambda: self.seek(self.slider.value()))
-        self.slider.sliderPressed.connect(self._slider_jump_to_click)
-        # Use a stretch factor of 1 so it shares space proportionally
-        bot.addWidget(self.slider, 1)
-
         self.now_lbl = MarqueeLabel("—")
-        bot.addWidget(self.now_lbl, 1)
-        # after creating self.now_lbl …
         self.now_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        # ensure at least ~15 chars fit before scrolling
         min_w = self.now_lbl.fontMetrics().averageCharWidth() * 15
         self.now_lbl.setMinimumWidth(min_w)
+        bot.addWidget(self.now_lbl, 1)
+
+        # Add to layout
         ll.addLayout(bot)
 
         # video background setup & loop
@@ -666,6 +738,20 @@ class MainWindow(QMainWindow):
             w, h, self.hue, self.video_enabled, self.autoplay,
             self.media_keys_enabled
         )
+
+    def format_time(self, ms):
+        mins, secs = divmod(ms // 1000, 60)
+        return f"{mins}:{secs:02d}"
+
+    def eventFilter(self, source, event):
+        if source == self.slider and event.type() == QEvent.MouseMove:
+            if self.audio.duration() > 0:
+                x = event.position().x()
+                ratio = x / self.slider.width()
+                pos = int(ratio * self.audio.duration())
+                mins, secs = divmod(pos // 1000, 60)
+                QToolTip.showText(QCursor.pos(), f"{mins}:{secs:02d}")
+        return super().eventFilter(source, event)
 
     def _slider_jump_to_click(self):
         # Get position relative to the slider width
@@ -877,11 +963,14 @@ class MainWindow(QMainWindow):
         self.audio.setPosition(pos)
 
     def update_position(self, p):
-        if not self.slider.isSliderDown():
+        if not getattr(self, "_user_dragging", False):
             self.slider.setValue(p)
+            self.elapsed_label.setText(self.format_time(p))
 
     def update_duration(self, d):
         self.slider.setRange(0, d)
+        mins, secs = divmod(d // 1000, 60)
+        self.total_label.setText(self.format_time(d))
 
     def open_settings(self):
         SettingsDialog(self).exec()
