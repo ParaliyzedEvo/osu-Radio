@@ -527,17 +527,16 @@ class MainWindow(QMainWindow):
         vol_layout.addWidget(vol)
 
         self.volume_label.setParent(vol_widget)
-        self.volume_label.move(vol_widget.width() - self.volume_label.width() - 5, 5)
+        self.volume_label.move(vol_widget.width() - self.volume_label.width() - 7, - 4)
         self.volume_label.raise_()
         self.volume_label.show()
 
         # Ensure label moves with resize
         vol_widget.resizeEvent = lambda event: self.volume_label.move(
-            vol_widget.width() - self.volume_label.width() - 5, 5
+            vol_widget.width() - self.volume_label.width() - 7, - 4
         )
 
-        bot.addWidget(vol_widget, 1)  # Add volume to left of controls
-
+        bot.addWidget(vol_widget, 1)
 
         # ── Seek slider + overlay ──
         self.slider = QSlider(Qt.Horizontal)
@@ -546,8 +545,24 @@ class MainWindow(QMainWindow):
         self.slider.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.slider.sliderMoved.connect(self.seek)
         self.slider.sliderReleased.connect(lambda: self.seek(self.slider.value()))
-        self.slider.sliderPressed.connect(self._slider_jump_to_click)
-        
+
+        class SeekSlider(QSlider):
+            def mousePressEvent(slider_self, event):
+                if event.button() == Qt.LeftButton:
+                    x = event.position().x() if hasattr(event, "position") else event.x()
+                    ratio = x / slider_self.width()
+                    new_val = int(ratio * slider_self.maximum())
+                    slider_self.setValue(new_val)
+                    self.seek(new_val)
+                super(QSlider, slider_self).mousePressEvent(event)
+
+        self.slider = SeekSlider(Qt.Horizontal)
+        self.slider.setMouseTracking(True)
+        self.slider.installEventFilter(self)
+        self.slider.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.slider.sliderMoved.connect(self.seek)
+        self.slider.sliderReleased.connect(lambda: self.seek(self.slider.value()))
+
         self.elapsed_label = QLabel("0:00")
         self.total_label = QLabel("0:00")
 
@@ -561,21 +576,22 @@ class MainWindow(QMainWindow):
 
         self.elapsed_label.setParent(seek_widget)
         self.total_label.setParent(seek_widget)
-        self.elapsed_label.move(5, 5)
-        self.total_label.move(seek_widget.width() - self.total_label.width() - 5, 5)
-        self.elapsed_label.raise_()
-        self.total_label.raise_()
         self.elapsed_label.show()
         self.total_label.show()
 
-        # Update label position on resize
-        seek_widget.resizeEvent = lambda event: self.total_label.move(
-            seek_widget.width() - self.total_label.width() - 5, 5
-        )
+        def position_seek_labels():
+            self.elapsed_label.adjustSize()
+            self.total_label.adjustSize()
+            self.elapsed_label.move(5, - 4)
+            self.total_label.move(seek_widget.width() - self.total_label.width() - 5, - 4)
+            self.elapsed_label.raise_()
+            self.total_label.raise_()
 
-        bot.addWidget(seek_widget, 2)  # Add seek slider
+        seek_widget.resizeEvent = lambda event: position_seek_labels()
+        QTimer.singleShot(0, lambda: position_seek_labels())
 
-
+        bot.addWidget(seek_widget, 2)
+        
         # ── Playback and info label ──
         self.loop_btn = QPushButton()
         self.loop_btn.setToolTip("Loop: Off")
