@@ -20,7 +20,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel, QFileDialog,
     QHBoxLayout, QVBoxLayout, QListWidget, QListWidgetItem,
-    QPushButton, QLineEdit, QSlider, QStyle,
+    QPushButton, QLineEdit, QSlider, QStyle, QStackedLayout,
     QDialog, QDialogButtonBox, QCheckBox, QComboBox,
     QGraphicsOpacityEffect, QGraphicsColorizeEffect,
     QMenu, QGridLayout, QSplitter, QToolTip, QSizePolicy
@@ -505,39 +505,76 @@ class MainWindow(QMainWindow):
         # p  = os.path.join(folder, bg)
         # Need this for later :P
 
-        # Bottom controls
-        timeline_layout = QHBoxLayout()
-        self.elapsed_label = QLabel("0:00")
-        self.total_label = QLabel("0:00")
-        timeline_layout.addWidget(self.elapsed_label, alignment=Qt.AlignLeft)
-        timeline_layout.addStretch()
-        timeline_layout.addWidget(self.total_label, alignment=Qt.AlignRight)
-        ll.addLayout(timeline_layout)
+        # Create bottom control layout
         bot = QHBoxLayout()
+
+        # ── Volume slider + overlay ──
         vol = QSlider(Qt.Horizontal)
-        self.volume_label = QLabel("30%")
-        vol.valueChanged.connect(lambda v: self.volume_label.setText(f"{v}%"))
         vol.setRange(0, 100)
         vol.setValue(30)
-        volume_layout = QHBoxLayout()
-        volume_layout.addStretch()
-        volume_layout.addWidget(self.volume_label, alignment=Qt.AlignRight)
-        ll.addLayout(volume_layout)
+        self.volume_label = QLabel("30%")
+        self.volume_label.setStyleSheet("color: white; background-color: rgba(0,0,0,90); padding: 0px 4px; border-radius: 3px;")
+        vol.valueChanged.connect(lambda v: self.volume_label.setText(f"{v}%"))
+        vol.valueChanged.connect(lambda v: self.audio_out.setVolume(v / 100))
         self.audio_out.setVolume(0.3)
-        vol.valueChanged.connect(lambda v: self.audio_out.setVolume(v/100))
-        bot.addWidget(vol, 1)
-        
+
+        vol_widget = QWidget()
+        vol_widget.setMinimumHeight(30)
+        vol_widget.setMaximumHeight(30)
+        vol_widget.setLayout(QStackedLayout())
+
+        vol_overlay = QWidget()
+        vol_overlay.setAttribute(Qt.WA_TransparentForMouseEvents)
+        vol_label_layout = QHBoxLayout(vol_overlay)
+        vol_label_layout.setContentsMargins(0, 0, 0, 0)
+        vol_label_layout.addStretch()
+        vol_label_layout.addWidget(self.volume_label)
+
+        vol_widget.layout().addWidget(vol)
+        vol_widget.layout().addWidget(vol_overlay)
+        bot.addWidget(vol_widget, 1)  # Add volume to left of controls
+
+
+        # ── Seek slider + overlay ──
+        self.slider = QSlider(Qt.Horizontal)
+        self.slider.setMouseTracking(True)
+        self.slider.installEventFilter(self)
+        self.slider.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.slider.sliderMoved.connect(self.seek)
+        self.slider.sliderReleased.connect(lambda: self.seek(self.slider.value()))
+        self.slider.sliderPressed.connect(self._slider_jump_to_click)
+
+        seek_widget = QWidget()
+        seek_widget.setMinimumHeight(30)
+        seek_widget.setMaximumHeight(30)
+        seek_widget.setLayout(QStackedLayout())
+
+        seek_overlay = QWidget()
+        seek_overlay.setAttribute(Qt.WA_TransparentForMouseEvents)
+        seek_label_layout = QHBoxLayout(seek_overlay)
+        seek_label_layout.setContentsMargins(0, 0, 0, 0)
+        self.elapsed_label = QLabel("0:00")
+        self.total_label = QLabel("0:00")
+        seek_label_layout.addWidget(self.elapsed_label)
+        seek_label_layout.addStretch()
+        seek_label_layout.addWidget(self.total_label)
+
+        seek_widget.layout().addWidget(self.slider)
+        seek_widget.layout().addWidget(seek_overlay)
+        bot.addWidget(seek_widget, 2)  # Add seek slider
+
+
+        # ── Playback and info label ──
         self.loop_btn = QPushButton()
         self.loop_btn.setToolTip("Loop: Off")
         self.update_loop_icon()
         self.loop_btn.clicked.connect(self.toggle_loop_mode)
         bot.addWidget(self.loop_btn)
 
-        b_shuf = QPushButton()
+        b_shuf = QPushButton("🔀")
         b_shuf.setFixedHeight(24)
         b_shuf.setFixedWidth(34)
         b_shuf.setStyleSheet("font-size: 15px;")
-        b_shuf.setText("🔀")
         b_shuf.clicked.connect(self.shuffle)
         bot.addWidget(b_shuf)
 
@@ -552,25 +589,13 @@ class MainWindow(QMainWindow):
             b.clicked.connect(fn)
             bot.addWidget(b)
 
-        # replaced sliderMoved with sliderReleased
-        self.slider = QSlider(Qt.Horizontal)
-        self.slider.setMouseTracking(True)
-        self.slider.installEventFilter(self)
-        # Make the slider expand/shrink to fill available space
-        self.slider.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.slider.sliderMoved.connect(self.seek)
-        self.slider.sliderReleased.connect(lambda: self.seek(self.slider.value()))
-        self.slider.sliderPressed.connect(self._slider_jump_to_click)
-        # Use a stretch factor of 1 so it shares space proportionally
-        bot.addWidget(self.slider, 1)
-
         self.now_lbl = MarqueeLabel("—")
-        bot.addWidget(self.now_lbl, 1)
-        # after creating self.now_lbl …
         self.now_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        # ensure at least ~15 chars fit before scrolling
         min_w = self.now_lbl.fontMetrics().averageCharWidth() * 15
         self.now_lbl.setMinimumWidth(min_w)
+        bot.addWidget(self.now_lbl, 1)
+
+        # Add to layout
         ll.addLayout(bot)
 
         # video background setup & loop
