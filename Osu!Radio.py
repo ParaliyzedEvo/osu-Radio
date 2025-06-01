@@ -513,25 +513,29 @@ class MainWindow(QMainWindow):
         vol.setRange(0, 100)
         vol.setValue(30)
         self.volume_label = QLabel("30%")
-        self.volume_label.setStyleSheet("color: white; background-color: rgba(0,0,0,90); padding: 0px 4px; border-radius: 3px;")
         vol.valueChanged.connect(lambda v: self.volume_label.setText(f"{v}%"))
+        self.volume_label.setVisible(True)
         vol.valueChanged.connect(lambda v: self.audio_out.setVolume(v / 100))
         self.audio_out.setVolume(0.3)
 
         vol_widget = QWidget()
         vol_widget.setMinimumHeight(30)
         vol_widget.setMaximumHeight(30)
-        vol_widget.setLayout(QStackedLayout())
+        vol_layout = QVBoxLayout(vol_widget)
+        vol_layout.setContentsMargins(0, 0, 0, 0)
+        vol_layout.setSpacing(0)
+        vol_layout.addWidget(vol)
 
-        vol_overlay = QWidget()
-        vol_overlay.setAttribute(Qt.WA_TransparentForMouseEvents)
-        vol_label_layout = QHBoxLayout(vol_overlay)
-        vol_label_layout.setContentsMargins(0, 0, 0, 0)
-        vol_label_layout.addStretch()
-        vol_label_layout.addWidget(self.volume_label)
+        self.volume_label.setParent(vol_widget)
+        self.volume_label.move(vol_widget.width() - self.volume_label.width() - 5, 5)
+        self.volume_label.raise_()
+        self.volume_label.show()
 
-        vol_widget.layout().addWidget(vol)
-        vol_widget.layout().addWidget(vol_overlay)
+        # Ensure label moves with resize
+        vol_widget.resizeEvent = lambda event: self.volume_label.move(
+            vol_widget.width() - self.volume_label.width() - 5, 5
+        )
+
         bot.addWidget(vol_widget, 1)  # Add volume to left of controls
 
 
@@ -543,24 +547,32 @@ class MainWindow(QMainWindow):
         self.slider.sliderMoved.connect(self.seek)
         self.slider.sliderReleased.connect(lambda: self.seek(self.slider.value()))
         self.slider.sliderPressed.connect(self._slider_jump_to_click)
+        
+        self.elapsed_label = QLabel("0:00")
+        self.total_label = QLabel("0:00")
 
         seek_widget = QWidget()
         seek_widget.setMinimumHeight(30)
         seek_widget.setMaximumHeight(30)
-        seek_widget.setLayout(QStackedLayout())
+        seek_layout = QVBoxLayout(seek_widget)
+        seek_layout.setContentsMargins(0, 0, 0, 0)
+        seek_layout.setSpacing(0)
+        seek_layout.addWidget(self.slider)
 
-        seek_overlay = QWidget()
-        seek_overlay.setAttribute(Qt.WA_TransparentForMouseEvents)
-        seek_label_layout = QHBoxLayout(seek_overlay)
-        seek_label_layout.setContentsMargins(0, 0, 0, 0)
-        self.elapsed_label = QLabel("0:00")
-        self.total_label = QLabel("0:00")
-        seek_label_layout.addWidget(self.elapsed_label)
-        seek_label_layout.addStretch()
-        seek_label_layout.addWidget(self.total_label)
+        self.elapsed_label.setParent(seek_widget)
+        self.total_label.setParent(seek_widget)
+        self.elapsed_label.move(5, 5)
+        self.total_label.move(seek_widget.width() - self.total_label.width() - 5, 5)
+        self.elapsed_label.raise_()
+        self.total_label.raise_()
+        self.elapsed_label.show()
+        self.total_label.show()
 
-        seek_widget.layout().addWidget(self.slider)
-        seek_widget.layout().addWidget(seek_overlay)
+        # Update label position on resize
+        seek_widget.resizeEvent = lambda event: self.total_label.move(
+            seek_widget.width() - self.total_label.width() - 5, 5
+        )
+
         bot.addWidget(seek_widget, 2)  # Add seek slider
 
 
