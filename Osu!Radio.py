@@ -163,7 +163,7 @@ def download_and_install_update(assets, latest_version, skipped_versions, settin
             f"The downloaded file ({os.path.basename(file_path)}) is a macOS installer.\n\n"
             "1. Double-click the .dmg or .pkg file to open it.\n"
             "2. Follow the on-screen instructions to complete the update.\n\n"
-            "3. Close program (if you haven't done so) and replace all files with the new files downloaded on {file_path}"
+            f"3. Close program (if you haven't done so) and replace all files with the new files downloaded on {file_path}"
             f"File saved to: {file_path}"
         )
         return
