@@ -66,12 +66,13 @@ else:
 ICON_PATH = BASE_PATH / ICON_FILE
 
 # Utility functions
-def check_for_update(current_version, skipped_versions=None):
+def check_for_update(current_version, skipped_versions=None, manual_check=False):
     try:
         response = requests.get("https://api.github.com/repos/Paraliyzedevo/osu-Radio/releases/latest", timeout=5)
         data = response.json()
         latest_version = data["tag_name"]
-        if skipped_versions and latest_version in skipped_versions:
+        # Only skip version if it's not a manual check
+        if not manual_check and skipped_versions and latest_version in skipped_versions:
             return None, None
         if latest_version != current_version:
             return latest_version, data["assets"]
@@ -108,15 +109,19 @@ def download_and_install_update(assets, latest_version, skipped_versions, settin
     msg.exec()
 
     if msg.clickedButton() == skip_btn:
-        skipped_versions.append(latest_version)
+        if latest_version not in skipped_versions:
+            skipped_versions.append(latest_version)
         # Save immediately
         try:
             with open(settings_path, "r+") as f:
                 settings = json.load(f)
-                settings["skipped_versions"] = skipped_versions
-                f.seek(0)
-                json.dump(settings, f, indent=2)
-                f.truncate()
+                existing = settings.get("skipped_versions", [])
+                if latest_version not in existing:
+                    existing.append(latest_version)
+                    settings["skipped_versions"] = existing
+                    f.seek(0)
+                    json.dump(settings, f, indent=2)
+                    f.truncate()
         except Exception as e:
             print("Failed to save skipped version:", e)
         return
@@ -914,7 +919,9 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(1000, lambda: self.check_updates())
         
     def check_updates(self, manual=False):
-        latest_version, assets = check_for_update(__version__, self.skipped_versions)
+        current_version = __version__  # or however you define it
+        skipped_versions = self.skipped_versions
+        latest_version, assets = check_for_update(current_version, skipped_versions, manual_check=manual)
         if latest_version:
             download_and_install_update(assets, latest_version, self.skipped_versions, str(SETTINGS_FILE))
         if not latest_version:
