@@ -441,6 +441,7 @@ class MainWindow(QMainWindow):
         self.audio = QMediaPlayer(self)
         self.audio_out = QAudioOutput(self)
         self.audio.setAudioOutput(self.audio_out)
+        self.audio.playbackStateChanged.connect(self.update_play_pause_icon)
         
         # ── DEBUG: log any QtMedia errors to console ──
         self.audio.errorOccurred.connect(
@@ -609,16 +610,23 @@ class MainWindow(QMainWindow):
         b_shuf.clicked.connect(self.shuffle)
         bot.addWidget(b_shuf)
 
-        for ico, fn in [
-            (QStyle.SP_MediaSkipBackward, self.prev_song),
-            (QStyle.SP_MediaPlay,         self.toggle_play),
-            (QStyle.SP_MediaPause,        self.pause_song),
-            (QStyle.SP_MediaSkipForward,  self.next_song),
-        ]:
-            b = QPushButton()
-            b.setIcon(self.style().standardIcon(ico))
-            b.clicked.connect(fn)
-            bot.addWidget(b)
+        # Skip Backward
+        btn_prev = QPushButton()
+        btn_prev.setIcon(self.style().standardIcon(QStyle.SP_MediaSkipBackward))
+        btn_prev.clicked.connect(self.prev_song)
+        bot.addWidget(btn_prev)
+
+        # Toggle Play/Pause
+        self.btn_play_pause = QPushButton()
+        self.update_play_pause_icon()
+        self.btn_play_pause.clicked.connect(self.toggle_play)
+        bot.addWidget(self.btn_play_pause)
+
+        # Skip Forward
+        btn_next = QPushButton()
+        btn_next.setIcon(self.style().standardIcon(QStyle.SP_MediaSkipForward))
+        btn_next.clicked.connect(self.next_song)
+        bot.addWidget(btn_next)
 
         self.now_lbl = MarqueeLabel("—")
         self.now_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -866,6 +874,12 @@ class MainWindow(QMainWindow):
         modes = ["Loop: Off", "Loop: All", "Loop: One"]
         self.loop_btn.setToolTip(modes[self.loop_mode])
         self.update_loop_icon()
+        
+    def update_play_pause_icon(self):
+        if self.audio.playbackState() == QMediaPlayer.PlayingState:
+            self.btn_play_pause.setIcon(self.style().standardIcon(QStyle.SP_MediaPause))
+        else:
+            self.btn_play_pause.setIcon(self.style().standardIcon(QStyle.SP_MediaPlay))
 
     def update_loop_icon(self):
         if self.loop_mode == 0:
@@ -891,12 +905,13 @@ class MainWindow(QMainWindow):
         self.now_lbl.setText(f"{song['artist']} - {song['title']}")
 
     def toggle_play(self):
-        """Play if paused/stopped, pause if playing, without resetting position."""
+        """Play if paused/stopped, pause if playing, and update icon."""
         state = self.audio.playbackState()
         if state == QMediaPlayer.PlayingState:
             self.audio.pause()
         else:
             self.audio.play()
+        self.update_play_pause_icon()
    
     def pause_song(self):
         self.audio.pause()
@@ -1099,7 +1114,7 @@ class MainWindow(QMainWindow):
             user32.UnregisterHotKey(0, 2)
             user32.UnregisterHotKey(0, 3)
 
-        # 2) Stop your video loop cleanly
+        # 2) Stop video loop cleanly
         try:
             self.bg_player.stop()
         except:
