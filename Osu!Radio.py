@@ -1,4 +1,4 @@
-__version__ = "1.5.0"
+__version__ = "1.3.0"
 
 import sys
 import os
@@ -10,6 +10,8 @@ import requests
 import zipfile
 import tarfile
 import tempfile
+import shutil
+import subprocess
 from pathlib import Path
 from mutagen.mp3 import MP3
 from PySide6.QtCore import (
@@ -155,7 +157,14 @@ def download_and_install_update(assets, latest_version, skipped_versions, settin
         with tarfile.open(file_path, "r:gz") as tar_ref:
             tar_ref.extractall(extract_dir)
     else:
-        QMessageBox.information(None, "Manual Install Needed", f"Downloaded: {file_path}\nPlease install it manually.")
+        QMessageBox.information(
+            None,
+            "Manual Install Required",
+            f"The downloaded file ({os.path.basename(file_path)}) is a macOS installer.\n\n"
+            "1. Double-click the .dmg or .pkg file to open it.\n"
+            "2. Follow the on-screen instructions to complete the update.\n\n"
+            f"File saved to: {file_path}"
+        )
         return
 
     # Look inside nested structure (like dist/osu!Radio/)
@@ -165,20 +174,51 @@ def download_and_install_update(assets, latest_version, skipped_versions, settin
             subdir = root
             break
 
-    # Replace current files
-    for item in os.listdir(subdir):
-        src = os.path.join(subdir, item)
-        dst = os.path.join(BASE_PATH, item)
-        try:
-            if os.path.isdir(src):
-                if os.path.exists(dst): shutil.rmtree(dst)
-                shutil.copytree(src, dst)
-            else:
-                shutil.copy2(src, dst)
-        except Exception as e:
-            print(f"Failed to update {item}: {e}")
+    # Launch the updater script in a new process and quit
+    updater_script = os.path.join(tempfile.gettempdir(), "osu_radio_updater.py")
+    updater_code = r"""import time, shutil, os, sys
 
-    QMessageBox.information(None, "Update Complete", "osu!Radio has been updated. Please restart the application.")
+time.sleep(1.5)
+
+src_dir = sys.argv[1]
+dst_dir = sys.argv[2]
+exe_name = sys.argv[3]
+
+for item in os.listdir(src_dir):
+    s = os.path.join(src_dir, item)
+    d = os.path.join(dst_dir, item)
+    try:
+        if os.path.isdir(s):
+            if os.path.exists(d):
+                shutil.rmtree(d)
+            shutil.copytree(s, d)
+        else:
+            shutil.copy2(s, d)
+    except Exception as e:
+        print(f"Failed to copy {s} to {d}: {e}")
+
+# Relaunch the app
+exe_path = os.path.join(dst_dir, exe_name)
+try:
+    os.execv(exe_path, [exe_path])
+except Exception as e:
+    print(f"Failed to relaunch app: {e}")
+
+# Cleanup this script
+try:
+    os.remove(__file__)
+except Exception as e:
+    print(f"Failed to delete updater script: {e}")
+"""
+    with open(updater_script, "w") as f:
+        f.write(updater_code)
+        
+    subprocess.Popen([
+        sys.executable, updater_script,
+        subdir, str(BASE_PATH), "osu!Radio.exe"
+    ])
+
+    QMessageBox.information(None, "Restarting", "osu!Radio will now restart with the update applied.")
     sys.exit(0)
 
 def init_db():
