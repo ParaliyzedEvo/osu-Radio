@@ -132,6 +132,7 @@ jobs:
           cp -r 'dist/osu!Radio' 'Osu!Radio/'
           cp -r 'Background Video' 'Osu!Radio/'
           cp 'Osu!RadioIcon.png' 'Osu!Radio/'
+          cp 'dist/updater' 'Osu!Radio/'
           tar -czf 'osu!Radio.tar.gz' -C 'Osu!Radio' .
 
       - name: Copy macOS installers for upload
