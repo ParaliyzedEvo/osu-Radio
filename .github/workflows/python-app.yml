@@ -112,7 +112,7 @@ jobs:
           pkgbuild \
             --root dist/osu!Radio.app \
             --identifier com.paraliyzedevo.osuradio \
-            --version 1.1.1 \
+            --version 1.5.0 \
             --install-location /Applications \
             dist/osu!Radio.pkg
 
