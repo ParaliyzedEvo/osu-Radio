@@ -1,9 +1,15 @@
+__version__ = "1.5.0"
+
 import sys
 import os
 import re
 import json
 import random
 import sqlite3
+import requests
+import zipfile
+import tarfile
+import tempfile
 from pathlib import Path
 from mutagen.mp3 import MP3
 from PySide6.QtCore import (
@@ -23,7 +29,8 @@ from PySide6.QtWidgets import (
     QPushButton, QLineEdit, QSlider, QStyle, QStackedLayout,
     QDialog, QDialogButtonBox, QCheckBox, QComboBox,
     QGraphicsOpacityEffect, QGraphicsColorizeEffect,
-    QMenu, QGridLayout, QSplitter, QToolTip, QSizePolicy
+    QMenu, QGridLayout, QSplitter, QToolTip, QSizePolicy,
+    QMessageBox, QProgressDialog
 )
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QVideoSink
 
@@ -45,7 +52,135 @@ else:
 WM_HOTKEY, MOD_NOREPEAT = 0x0312, 0x4000
 VK_MEDIA_PLAY_PAUSE, VK_MEDIA_NEXT_TRACK, VK_MEDIA_PREV_TRACK = 0xB3, 0xB0, 0xB1
 
+if sys.platform == "darwin":
+    ICON_FILE = "Osu!RadioIcon.icns"
+elif sys.platform.startswith("linux"):
+    ICON_FILE = "Osu!RadioIcon.png"
+elif sys.platform.startswith("win"):
+    ICON_FILE = "Osu!RadioIcon.ico"
+else:
+    icon = "Osu!RadioIcon.png"  # fallback
+    
+ICON_PATH = BASE_PATH / ICON_FILE
+
 # Utility functions
+def check_for_update(current_version, skipped_versions=None):
+    try:
+        response = requests.get("https://api.github.com/repos/Paraliyzedevo/osu-Radio/releases/latest", timeout=5)
+        data = response.json()
+        latest_version = data["tag_name"]
+        if skipped_versions and latest_version in skipped_versions:
+            return None, None
+        if latest_version != current_version:
+            return latest_version, data["assets"]
+    except Exception as e:
+        print(f"Update check failed: {e}")
+    return None, None
+
+def download_and_install_update(assets, latest_version, skipped_versions, settings_path):
+    platform = sys.platform
+    url = None
+
+    for asset in assets:
+        name = asset["name"].lower()
+        if platform.startswith("win") and name.endswith(".zip"):
+            url = asset["browser_download_url"]
+        elif platform == "darwin" and (name.endswith(".dmg") or name.endswith(".pkg")):
+            url = asset["browser_download_url"]
+        elif platform.startswith("linux") and name.endswith(".tar.gz"):
+            url = asset["browser_download_url"]
+        if url:
+            break
+
+    if not url:
+        QMessageBox.information(None, "Update", "No suitable update found.")
+        return
+
+    msg = QMessageBox()
+    msg.setWindowTitle("Update Available")
+    msg.setText(f"Version {latest_version} is available. Do you want to update?")
+    msg.setWindowIcon(QIcon(str(ICON_PATH)))
+    update_btn = msg.addButton("Update Now", QMessageBox.AcceptRole)
+    remind_btn = msg.addButton("Remind Me Later", QMessageBox.RejectRole)
+    skip_btn = msg.addButton("Skip This Version", QMessageBox.DestructiveRole)
+    msg.exec()
+
+    if msg.clickedButton() == skip_btn:
+        skipped_versions.append(latest_version)
+        # Save immediately
+        try:
+            with open(settings_path, "r+") as f:
+                settings = json.load(f)
+                settings["skipped_versions"] = skipped_versions
+                f.seek(0)
+                json.dump(settings, f, indent=2)
+                f.truncate()
+        except Exception as e:
+            print("Failed to save skipped version:", e)
+        return
+
+    if msg.clickedButton() != update_btn:
+        return  # User chose "Remind me later"
+
+    # Proceed with update
+    temp_dir = tempfile.mkdtemp()
+    file_path = os.path.join(temp_dir, os.path.basename(url))
+    with requests.get(url, stream=True) as r:
+        with open(file_path, "wb") as f:
+            total = int(r.headers.get('content-length', 0))
+            progress = QProgressDialog("Downloading update...", "Cancel", 0, total)
+            progress.setWindowModality(Qt.ApplicationModal)
+            progress.setWindowTitle("osu!Radio Updater")
+            progress.setMinimumWidth(400)
+            progress.show()
+
+            downloaded = 0
+            for chunk in r.iter_content(chunk_size=8192):
+                if not chunk:
+                    continue
+                f.write(chunk)
+                downloaded += len(chunk)
+                progress.setValue(downloaded)
+                QApplication.processEvents()
+                if progress.wasCanceled():
+                    QMessageBox.information(None, "Update Cancelled", "The update was cancelled.")
+                    return
+            progress.close()
+
+    extract_dir = tempfile.mkdtemp()
+    if file_path.endswith(".zip"):
+        with zipfile.ZipFile(file_path, "r") as zip_ref:
+            zip_ref.extractall(extract_dir)
+    elif file_path.endswith(".tar.gz"):
+        with tarfile.open(file_path, "r:gz") as tar_ref:
+            tar_ref.extractall(extract_dir)
+    else:
+        QMessageBox.information(None, "Manual Install Needed", f"Downloaded: {file_path}\nPlease install it manually.")
+        return
+
+    # Look inside nested structure (like dist/osu!Radio/)
+    subdir = extract_dir
+    for root, dirs, files in os.walk(extract_dir):
+        if "osu!Radio.exe" in files or "osu!Radio" in files:
+            subdir = root
+            break
+
+    # Replace current files
+    for item in os.listdir(subdir):
+        src = os.path.join(subdir, item)
+        dst = os.path.join(BASE_PATH, item)
+        try:
+            if os.path.isdir(src):
+                if os.path.exists(dst): shutil.rmtree(dst)
+                shutil.copytree(src, dst)
+            else:
+                shutil.copy2(src, dst)
+        except Exception as e:
+            print(f"Failed to update {item}: {e}")
+
+    QMessageBox.information(None, "Update Complete", "osu!Radio has been updated. Please restart the application.")
+    sys.exit(0)
+
 def init_db():
     conn = sqlite3.connect(DATABASE_FILE)
     cursor = conn.cursor()
@@ -343,6 +478,11 @@ class SettingsDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
         
+        # Update button
+        update_button = QPushButton("Check for Updates")
+        update_button.clicked.connect(lambda: parent.check_updates(manual=True))
+        layout.addWidget(update_button)
+        
         # Save states for settings
         self._original_opacity = parent.ui_opacity
         self._original_hue = parent.hue
@@ -380,21 +520,10 @@ class MainWindow(QMainWindow):
         self.queue   = []
         self.current_index = 0
         self.media_key_listener = None
-        
-        if sys.platform == "darwin":
-            icon = "Osu!RadioIcon.icns"
-        elif sys.platform.startswith("linux"):
-            icon = "Osu!RadioIcon.png"
-        elif sys.platform.startswith("win"):
-            icon= "Osu!RadioIcon.ico"
-        else:
-            icon = "Osu!RadioIcon.png"  # fallback
             
-        base_path = getattr(sys, "_MEIPASS", os.path.abspath(os.path.dirname(__file__)))
-        icon_path = os.path.join(base_path, icon)
-        self.setWindowIcon(QIcon(icon_path))
+        self.setWindowIcon(QIcon(str(ICON_PATH)))
         
-        self.setWindowTitle("osu!Radio")
+        self.setWindowTitle(f"osu!Radio v{__version__}")
         self.aspect_ratio = 16 / 9
         self.loop_mode = 0
         geom = QGuiApplication.primaryScreen().availableGeometry()
@@ -419,6 +548,7 @@ class MainWindow(QMainWindow):
         self.video_enabled      = settings.get("video_enabled", True)
         self.autoplay           = settings.get("autoplay", False)
         self.media_keys_enabled = settings.get("media_keys_enabled", True)
+        self.skipped_versions   = settings.get("skipped_versions", [])
         res                     = settings.get("resolution", "854×480")
         rw, rh = (854, 480)
         if res and "×" in res:
@@ -691,7 +821,6 @@ class MainWindow(QMainWindow):
             self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
         else:
             # No cache found: ask user to rebuild
-            from PySide6.QtWidgets import QMessageBox
             reply = QMessageBox.question(
                 self, "Cache Missing",
                 "No cache found. Would you like to scan your osu! songs folder and build the cache?",
@@ -746,6 +875,17 @@ class MainWindow(QMainWindow):
             w, h, self.hue, self.video_enabled, self.autoplay,
             self.media_keys_enabled
         )
+        
+        QTimer.singleShot(1000, lambda: self.check_updates())
+        
+    def check_updates(self, manual=False):
+        latest_version, assets = check_for_update(__version__, self.skipped_versions)
+        if latest_version:
+            download_and_install_update(assets, latest_version, self.skipped_versions, str(SETTINGS_FILE))
+        if not latest_version:
+            if manual:
+                QMessageBox.information(self, "osu!Radio", "You're already on the latest version.")
+            return
 
     def format_time(self, ms):
         mins, secs = divmod(ms // 1000, 60)
@@ -1066,6 +1206,7 @@ class MainWindow(QMainWindow):
             "autoplay": self.autoplay,
             "media_keys_enabled": self.media_keys_enabled,
             "resolution": f"{self.width()}×{self.height()}",
+            "skipped_versions": self.skipped_versions,
         }
         try:
             with open(SETTINGS_FILE, "w") as f:
