@@ -178,3 +178,4 @@ cython_debug/
 dist/Osu!Radio/*.json
 *.db
 *.exe
+updater.spec

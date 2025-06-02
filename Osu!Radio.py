@@ -1,4 +1,4 @@
-__version__ = "1.3.0"
+__version__ = "1.5.0"
 
 import sys
 import os
@@ -163,6 +163,7 @@ def download_and_install_update(assets, latest_version, skipped_versions, settin
             f"The downloaded file ({os.path.basename(file_path)}) is a macOS installer.\n\n"
             "1. Double-click the .dmg or .pkg file to open it.\n"
             "2. Follow the on-screen instructions to complete the update.\n\n"
+            "3. Close program (if you haven't done so) and replace all files with the new files downloaded on {file_path}"
             f"File saved to: {file_path}"
         )
         return
@@ -192,26 +193,27 @@ def download_and_install_update(assets, latest_version, skipped_versions, settin
         if getattr(sys, 'frozen', False):
             if sys.platform.startswith("win"):
                 updater = os.path.join(sys._MEIPASS, "updater.exe")
-            elif sys.platform.startswith("darwin"):
+            elif sys.platform.startswith("linux"):
                updater = os.path.join(sys._MEIPASS, "updater") 
         else:
             if sys.platform.startswith("win"):
                 updater = os.path.join(BASE_PATH, "updater.exe")
-            elif sys.platform.startswith("darwin"):
+            elif sys.platform.startswith("linux"):
                updater = os.path.join(BASE_PATH, "updater")
                
-        if sys.platform.startswith("darwin"):
-            os.chmod(updater_exe, 0o755)
+        if sys.platform.startswith("linux"):
+            os.chmod(updater, 0o755)
             
         if sys.platform.startswith("win"):
             exe = "osu!Radio.exe"
-        elif sys.platform.startswith("darwin"):
+        elif sys.platform.startswith("linux"):
             exe = "osu!Radio"
 
         subprocess.Popen([
             updater,
             subdir, str(BASE_PATH), exe, str(os.getpid())
         ])
+        shutil.rmtree(temp_dir, ignore_errors=True)
         sys.exit(0)
 
 def init_db():
