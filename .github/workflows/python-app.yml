@@ -74,6 +74,11 @@ jobs:
           cp "$ICONSET/icon_1024x1024.png" "$ICONSET/icon_512x512@2x.png"
           iconutil -c icns "$ICONSET" -o "${ICON_NAME}.icns"
           rm -r "$ICONSET"
+          
+      - name: Build updater (Windows and Linux)
+        if: matrix.os != 'macos-latest'
+        run: |
+          pyinstaller updater.py --onefile --noconsole
 
       - name: Build app (Windows)
         if: matrix.os == 'windows-latest'

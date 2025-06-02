@@ -1,8 +1,8 @@
 import time, shutil, os, sys, psutil
 MAX_RETRIES = 10
 
-# Log file for debug info (next to the app)
-log_path = "osu_radio_updater_log.txt"
+# Log file for debug info
+log_path = "updater_log.txt"
 log = open(log_path, "w", encoding="utf-8")
 
 def log_print(msg):
@@ -10,7 +10,7 @@ def log_print(msg):
     log.write(msg + "\n")
     log.flush()
     
-pid_to_wait = int(sys.argv[4])  # added PID param
+pid_to_wait = int(sys.argv[4])
 
 log_print(f"Waiting for PID {pid_to_wait} to exit...")
 
@@ -31,7 +31,7 @@ dst_dir = sys.argv[2]
 exe_name = sys.argv[3]
 
 # Before copy
-pid = int(sys.argv[4])  # pass it from the app
+pid = int(sys.argv[4])
 while psutil.pid_exists(pid):
     log_print(f"Waiting for PID {pid} to exit...")
     time.sleep(0.5)
@@ -73,11 +73,12 @@ for root, dirs, files in os.walk(src_dir):
         else:
             log_print(f"❌ Gave up copying {s}")
 
-# Cleanup this script BEFORE launching app
+# Remove temp files
 try:
-    os.remove(__file__)
+    shutil.rmtree(src_dir, ignore_errors=True)
+    log_print(f"🧹 Removed temporary update folder: {src_dir}")
 except Exception as e:
-    log_print(f"Failed to delete updater script: {e}")
+    log_print(f"⚠️ Failed to remove temporary update folder: {e}")
 
 # Relaunch the app
 exe_path = os.path.join(dst_dir, exe_name)
