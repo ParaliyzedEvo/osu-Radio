@@ -1,12 +1,14 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_submodules
 
+hiddenimports = collect_submodules('pynput') + ['simplejson']
+
 a = Analysis(
     ['Osu!Radio.py'],
     pathex=[],
     binaries=[('dist/updater','.')],
     datas=[('Background Video', 'Background Video'),('Osu!RadioIcon.ico','.')],
-    hiddenimports=collect_submodules('pynput'),
+    hiddenimports=hiddenimports
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
