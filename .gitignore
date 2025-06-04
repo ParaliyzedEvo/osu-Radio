@@ -179,3 +179,4 @@ dist/Osu!Radio/*.json
 *.db
 *.exe
 updater.spec
+test/

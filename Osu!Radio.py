@@ -1,4 +1,4 @@
-__version__ = "1.5.0"
+__version__ = "1.5.1"
 
 import sys
 import os
@@ -54,6 +54,13 @@ else:
 WM_HOTKEY, MOD_NOREPEAT = 0x0312, 0x4000
 VK_MEDIA_PLAY_PAUSE, VK_MEDIA_NEXT_TRACK, VK_MEDIA_PREV_TRACK = 0xB3, 0xB0, 0xB1
 
+if getattr(sys, "frozen", False):
+    ASSETS_PATH = Path(sys._MEIPASS)
+    BASE_PATH = Path(sys.executable).parent  # For writing settings, DB
+else:
+    BASE_PATH = Path(__file__).parent
+    ASSETS_PATH = BASE_PATH
+
 if sys.platform == "darwin":
     ICON_FILE = "Osu!RadioIcon.icns"
 elif sys.platform.startswith("linux"):
@@ -61,11 +68,15 @@ elif sys.platform.startswith("linux"):
 elif sys.platform.startswith("win"):
     ICON_FILE = "Osu!RadioIcon.ico"
 else:
-    icon = "Osu!RadioIcon.png"  # fallback
+    ICON_FILE = "Osu!RadioIcon.png"  # fallback
     
-ICON_PATH = BASE_PATH / ICON_FILE
+ICON_PATH = ASSETS_PATH / ICON_FILE
 
 # Utility functions
+def get_audio_path(song):
+    """Return full audio path for a song dictionary."""
+    return Path(song["folder"]) / song["audio"]
+
 def check_for_update(current_version, skipped_versions=None, manual_check=False):
     try:
         response = requests.get("https://api.github.com/repos/Paraliyzedevo/osu-Radio/releases/latest", timeout=5)
@@ -252,7 +263,7 @@ def init_db():
 def load_cache(folder):
     if not DATABASE_FILE.exists():
         return None
-    init_db()
+
     conn = sqlite3.connect(DATABASE_FILE)
     cursor = conn.cursor()
     try:
@@ -260,16 +271,16 @@ def load_cache(folder):
         row = cursor.fetchone()
         if row and row[0] == str(os.path.getmtime(folder)):
             cursor.execute("SELECT title, artist, mapper, audio, background, length, osu_file, folder FROM songs")
-            maps = []
-            for r in cursor.fetchall():
-                maps.append({
+            return [
+                {
                     "title": r[0], "artist": r[1], "mapper": r[2],
                     "audio": r[3], "background": r[4], "length": r[5],
                     "osu_file": r[6], "folder": r[7]
-                })
-            return maps
+                }
+                for r in cursor.fetchall()
+            ]
     except Exception as e:
-        print(f"Error loading cache from SQLite: {e}")
+        print(f"[load_cache] Failed: {e}")
     finally:
         conn.close()
     return None
@@ -280,23 +291,22 @@ def save_cache(folder, maps):
     cursor = conn.cursor()
     try:
         cursor.execute("BEGIN TRANSACTION")
-        # Clear existing songs (optional, could also do INSERT OR REPLACE)
-        # For simplicity, clear and re-insert if saving a full new list
-        cursor.execute("DELETE FROM songs")
 
         for s_map in maps:
             cursor.execute("""
-                INSERT OR IGNORE INTO songs (title, artist, mapper, audio, background, length, osu_file, folder)
+                INSERT OR REPLACE INTO songs (title, artist, mapper, audio, background, length, osu_file, folder)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (s_map.get("title"), s_map.get("artist"), s_map.get("mapper"),
-                  s_map.get("audio"), s_map.get("background"), s_map.get("length", 0),
-                  s_map.get("osu_file"), s_map.get("folder")))
+            """, (
+                s_map.get("title"), s_map.get("artist"), s_map.get("mapper"),
+                s_map.get("audio"), s_map.get("background"), s_map.get("length", 0),
+                s_map.get("osu_file"), s_map.get("folder")
+            ))
 
         cursor.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
                        ('folder_mtime', str(os.path.getmtime(folder))))
         conn.commit()
     except Exception as e:
-        print(f"Error saving cache to SQLite: {e}")
+        print(f"[save_cache] Failed: {e}")
         conn.rollback()
     finally:
         conn.close()
@@ -608,18 +618,7 @@ class MainWindow(QMainWindow):
         self.save_user_settings()
 
         # Audio player
-        self.audio = QMediaPlayer(self)
-        self.audio_out = QAudioOutput(self)
-        self.audio.setAudioOutput(self.audio_out)
-        self.audio.playbackStateChanged.connect(self.update_play_pause_icon)
-        
-        # ── DEBUG: log any QtMedia errors to console ──
-        self.audio.errorOccurred.connect(
-            lambda err, msg: print(f"🎶 QMediaPlayer error: {err}, message: {msg}")
-        )
-
-        # auto‐advance when track ends
-        self.audio.mediaStatusChanged.connect(self._on_audio_status)
+        self.setup_media_players()
 
         # Central + stacking
         central = QWidget(self)
@@ -684,7 +683,7 @@ class MainWindow(QMainWindow):
         vol.setRange(0, 100)
         vol.setValue(30)
         self.volume_label = QLabel("30%")
-        vol.valueChanged.connect(lambda v: self.volume_label.setText(f"{v}%"))
+        vol.valueChanged.connect(self._update_volume_label)
         self.volume_label.setVisible(True)
         vol.valueChanged.connect(lambda v: self.audio_out.setVolume(v / 100))
         self.audio_out.setVolume(0.3)
@@ -756,8 +755,11 @@ class MainWindow(QMainWindow):
         def position_seek_labels():
             self.elapsed_label.adjustSize()
             self.total_label.adjustSize()
-            self.elapsed_label.move(5, -4)
-            self.total_label.move(seek_widget.width() - self.total_label.width() - 5, -4)
+            self.elapsed_label.move(5, (seek_widget.height() - self.elapsed_label.height()) // 2 - 11)
+            self.total_label.move(
+                seek_widget.width() - self.total_label.width() - 5,
+                (seek_widget.height() - self.total_label.height()) // 2 - 11
+            )
             self.elapsed_label.raise_()
             self.total_label.raise_()
 
@@ -907,6 +909,9 @@ class MainWindow(QMainWindow):
                         print(f"[startup] Failed to import from JSON cache: {e}")
                         # If JSON fails or doesn't exist, fall back to full scan
                         self.reload_songs()
+                else:
+                    print("[startup] No legacy JSON cache found. Running full scan...")
+                    self.reload_songs()
             else:
                 sys.exit()
             
@@ -918,6 +923,9 @@ class MainWindow(QMainWindow):
         
         QTimer.singleShot(1000, lambda: self.check_updates())
         
+    def _update_volume_label(self, v):
+        self.volume_label.setText(f"{v}%")
+        
     def check_updates(self, manual=False):
         current_version = __version__  # or however you define it
         skipped_versions = self.skipped_versions
@@ -928,6 +936,18 @@ class MainWindow(QMainWindow):
             if manual:
                 QMessageBox.information(self, "osu!Radio", "You're already on the latest version.")
             return
+            
+    def setup_media_players(self):
+        self.audio = QMediaPlayer(self)
+        self.audio_out = QAudioOutput(self)
+        self.audio.setAudioOutput(self.audio_out)
+        self.audio.playbackStateChanged.connect(self.update_play_pause_icon)
+        self.audio.mediaStatusChanged.connect(self._on_audio_status)
+        self.audio.errorOccurred.connect(
+            lambda err, msg: print(f"🎶 QMediaPlayer error: {err}, message: {msg}")
+        )
+
+        self.audio_out.setVolume(0.3)
 
     def format_time(self, ms):
         mins, secs = divmod(ms // 1000, 60)
@@ -1025,31 +1045,32 @@ class MainWindow(QMainWindow):
 
     def apply_theme(self, light: bool):
         if light:
-            self.centralWidget().setStyleSheet("background-color: rgba(255,255,255,200); color:black;")
+            style = """
+                QWidget { background-color: rgba(255,255,255,200); color: black; }
+                QPushButton { background-color: #e0e0e0; }
+            """
         else:
-            self.centralWidget().setStyleSheet("")
+            style = ""  # Use system default
+        self.centralWidget().setStyleSheet(style)
 
     def populate_list(self, songs):
+        # Update the visible song list.
         self.song_list.clear()
         for song in songs:
             item = QListWidgetItem(f"{song['artist']} - {song['title']}")
             item.setData(Qt.UserRole, song)
             self.song_list.addItem(item)
-        self.song_list.viewport().update()
 
     def filter_list(self, text):
         t = text.lower().strip()
         if not t:
             self.populate_list(self.queue)
         else:
-            hits = [
+            filtered = [
                 s for s in self.library
-                if t in s['title'].lower()
-                or t in s['artist'].lower()
-                or t in s['mapper'].lower()
+                if t in s["title"].lower() or t in s["artist"].lower() or t in s["mapper"].lower()
             ]
-            self.populate_list(hits)
-        self.song_list.viewport().update()
+            self.populate_list(filtered)
 
     def toggle_loop_mode(self):
         self.loop_mode = (self.loop_mode + 1) % 3
@@ -1081,13 +1102,13 @@ class MainWindow(QMainWindow):
             self.loop_btn.setFixedWidth(34)
 
     def play_song(self, song):
-        audio_path = Path(song["folder"]) / song["audio"]
+        audio_path = get_audio_path(song)
         self.audio.setSource(QUrl.fromLocalFile(str(audio_path)))
         self.audio.play()
         self.now_lbl.setText(f"{song['artist']} - {song['title']}")
 
     def toggle_play(self):
-        """Play if paused/stopped, pause if playing, and update icon."""
+        # Play if paused/stopped, pause if playing, and update icon.
         state = self.audio.playbackState()
         if state == QMediaPlayer.PlayingState:
             self.audio.pause()
@@ -1102,27 +1123,23 @@ class MainWindow(QMainWindow):
         self.current_index = index
         item = self.song_list.item(index)
         song = self.queue[index]
-        folder = song["folder"]
-        audio_file = os.path.join(song["folder"], song["audio"])
+
         if item:
             song = item.data(Qt.UserRole)
-            if song:
-                self.play_song(song)
-        
-        path = Path(song["folder"]) / song["audio"]
 
-        # ─── DEBUG LOGGING ──────────────────────────────────
-        print(f"▶▶ play_song_at_index: idx={index}, file={audio_file!r}")
-        print("    folder exists? ", os.path.isdir(folder))
+        path = get_audio_path(song)
+
+        # Debug logging
+        print(f"▶▶ play_song_at_index: idx={index}, file={path!r}")
+        print("    folder exists? ", os.path.isdir(song["folder"]))
         print("    file exists?   ", os.path.isfile(path))
-        # ────────────────────────────────────────────────────
 
-        if not audio_file or not os.path.isfile(path):
+        if not path.exists():
             print("⚠️  Skipping playback because file missing")
             return
 
         # Set and play the media
-        self.audio.setSource(QUrl.fromLocalFile(path))
+        self.audio.setSource(QUrl.fromLocalFile(str(path)))
         self.audio.play()
 
         # Update UI
@@ -1150,7 +1167,6 @@ class MainWindow(QMainWindow):
         self.play_song_at_index(idx)
 
     def shuffle(self):
-        import random
         random.shuffle(self.queue)
         self.populate_list(self.queue)
         self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
@@ -1173,27 +1189,27 @@ class MainWindow(QMainWindow):
         SettingsDialog(self).exec()
 
     def reload_songs(self):
-        """Populate immediately (sync if no cache), then always rescan in background."""
-        print(f"[reload_songs] Scanning folder: {self.osu_folder}")  # 🔍 DEBUG
-        
-        # Stop and wait for any existing scanner thread
+        # Populate immediately (sync if no cache), then always rescan in background.
+        print(f"[reload_songs] Scanning folder: {self.osu_folder}")
+
+        # Stop previous scan if running
         if hasattr(self, "_scanner") and self._scanner.isRunning():
-            print("[reload_songs] Previous scanner running. Requesting interruption...")
+            print("[reload_songs] Interrupting previous scanner...")
             self._scanner.requestInterruption()
             if not self._scanner.wait(5000):
-                print("[reload_songs] Scanner thread did not terminate in time. Forcing termination.")
-                self._scanner.terminate() # Force terminate if wait fails
-                self._scanner.wait() # Wait for termination to complete
-            print("[reload_songs] Previous scanner stopped.")
+                print("[reload_songs] Forcing scanner termination...")
+                self._scanner.terminate()
+                self._scanner.wait()
 
+        # Try cache
         cached = load_cache(self.osu_folder)
         if cached:
-            print("[reload_songs] Loaded from cache.")
+            print("[reload_songs] ✅ Loaded from cache.")
             self.library = cached
             self.queue = list(cached)
         else:
-            print("[reload_songs] No valid cache found. Doing quick scan...")  # 🔍 DEBUG
-            raw, uniq = [], {}
+            print("[reload_songs] ⚠️ No cache. Doing full scan...")
+            uniq = {}
             for root, _, files in os.walk(self.osu_folder):
                 for fn in files:
                     if fn.lower().endswith(".osu"):
@@ -1207,33 +1223,47 @@ class MainWindow(QMainWindow):
                             )
                             if key not in uniq:
                                 uniq[key] = s
-                            print(f"  ✅ Found beatmap: {s['artist']} - {s['title']}")  # 🔍 DEBUG
+                                print(f"  🎵 Found beatmap: {s['artist']} - {s['title']}")
                         except Exception as e:
-                            print(f"  ⚠️ Error parsing {full_path}: {e}")  # 🔍 DEBUG
+                            print(f"  ⚠️ Error parsing {full_path}: {e}")
             self.library = list(uniq.values())
             self.queue = list(self.library)
             save_cache(self.osu_folder, self.library)
 
-        print(f"[reload_songs] ✅ Reloaded {len(self.library)} songs from full folder scan")
+        print(f"[reload_songs] ✅ Reloaded {len(self.library)} songs")
 
-        # Update UI immediately
         self.populate_list(self.queue)
         self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
 
-        # Kick off a background thread to re-scan (and re-cache) later
-        print("[reload_songs] Starting new background scanner thread...")
+        # Background scan
+        print("[reload_songs] Starting background rescan...")
         self._scanner = LibraryScanner(self.osu_folder)
         self._scanner.done.connect(self._on_reload_complete)
         self._scanner.start()
 
     def load_user_settings(self):
+        defaults = {
+            "osu_folder": None,
+            "light_mode": False,
+            "ui_opacity": 0.75,
+            "window_width": 854,
+            "window_height": 480,
+            "hue": 240,
+            "loop_mode": 0,
+            "video_enabled": True,
+            "autoplay": False,
+            "media_keys_enabled": True,
+            "resolution": "854×480",
+            "skipped_versions": [],
+        }
         if SETTINGS_FILE.exists():
             try:
                 with open(SETTINGS_FILE, "r") as f:
-                    return json.load(f)
+                    settings = json.load(f)
+                    return {**defaults, **settings}
             except Exception as e:
                 print("Failed to load settings:", e)
-        return {}
+        return defaults
 
     def save_user_settings(self):
         settings = {
@@ -1257,7 +1287,7 @@ class MainWindow(QMainWindow):
             print("Failed to save settings:", e)
         
     def _on_reload_complete(self, library):
-        """Called when background thread finishes parsing."""
+        # Called when background thread finishes parsing.
         self.library = library
         self.queue   = list(library)
         self.populate_list(self.queue)
