@@ -82,16 +82,15 @@ jobs:
 
       - name: Build app (Windows)
         if: matrix.os == 'windows-latest'
-        run: pyinstaller Osu!Radio.spec
+        run: pyinstaller Osu!Radio.spec --clean
 
       - name: Build app (Linux)
         if: matrix.os == 'ubuntu-latest'
-        run: |
-          pyinstaller Osu!Radio-linux.spec
+        run: pyinstaller Osu!Radio-linux.spec --clean
 
       - name: Build app (macOS)
         if: matrix.os == 'macos-latest'
-        run: pyinstaller Osu!Radio-macos.spec
+        run: pyinstaller Osu!Radio-macos.spec --clean
 
       - name: Install create-dmg (macOS)
         if: matrix.os == 'macos-latest'
