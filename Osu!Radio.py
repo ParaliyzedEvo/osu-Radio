@@ -1,4 +1,4 @@
-__version__ = "1.5.1"
+__version__ = "1.5.2"
 
 import sys
 import os
@@ -12,6 +12,7 @@ import tarfile
 import tempfile
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 from mutagen.mp3 import MP3
 from PySide6.QtCore import (
@@ -149,6 +150,7 @@ def download_and_install_update(assets, latest_version, skipped_versions, settin
             progress = QProgressDialog("Downloading update...", "Cancel", 0, total)
             progress.setWindowModality(Qt.ApplicationModal)
             progress.setWindowTitle("osu!Radio Updater")
+            progress.setWindowIcon(ICON_PATH)
             progress.setMinimumWidth(400)
             progress.show()
 
@@ -225,8 +227,11 @@ def download_and_install_update(assets, latest_version, skipped_versions, settin
         elif sys.platform.startswith("linux"):
             exe = "osu!Radio"
 
+        temp_updater = tempfile.NamedTemporaryFile(delete=False, suffix=".exe").name
+        shutil.copy2(updater, temp_updater)
+
         subprocess.Popen([
-            updater,
+            temp_updater,
             subdir, str(BASE_PATH), exe, str(os.getpid())
         ])
         shutil.rmtree(temp_dir, ignore_errors=True)

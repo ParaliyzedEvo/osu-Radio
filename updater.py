@@ -1,5 +1,5 @@
-import time, shutil, os, sys, psutil
-MAX_RETRIES = 10
+import time, shutil, os, sys, psutil, uuid
+PRESERVE_FILES = {"songs.db", "settings.json"}
 
 # Log file for debug info
 log_path = "updater_log.txt"
@@ -49,29 +49,44 @@ def wait_for_unlock(target_path, timeout=30):
     log_print(f"❌ Timed out waiting for unlock: {target_path}")
     return False
 
-# Copy files with overwrite, retries, and forced delete if needed
+# Delete everything
+for root, dirs, files in os.walk(dst_dir, topdown=False):
+    for file in files:
+        rel_path = os.path.relpath(os.path.join(root, file), dst_dir)
+        if os.path.basename(rel_path) in PRESERVE_FILES:
+            log_print(f"🛑 Preserved: {rel_path}")
+            continue
+        try:
+            os.remove(os.path.join(root, file))
+        except Exception as e:
+            log_print(f"⚠️ Failed to delete file {file}: {e}")
+
+    for dir in dirs:
+        try:
+            full_dir = os.path.join(root, dir)
+            # Skip folders containing preserved files
+            if any(os.path.isfile(os.path.join(full_dir, f)) and f in PRESERVE_FILES for f in os.listdir(full_dir)):
+                log_print(f"🛑 Skipped deleting folder containing preserved files: {full_dir}")
+                continue
+            shutil.rmtree(full_dir, ignore_errors=True)
+        except Exception as e:
+            log_print(f"⚠️ Failed to delete folder {dir}: {e}")
+
+# Copy all files from src_dir into dst_dir
 for root, dirs, files in os.walk(src_dir):
     rel_path = os.path.relpath(root, src_dir)
-    dst_root = os.path.join(dst_dir, rel_path)
-    os.makedirs(dst_root, exist_ok=True)
+    target_root = os.path.join(dst_dir, rel_path)
+    os.makedirs(target_root, exist_ok=True)
 
     for file in files:
-        s = os.path.join(root, file)
-        d = os.path.join(dst_root, file)
+        src_file = os.path.join(root, file)
+        dst_file = os.path.join(target_root, file)
 
-        for attempt in range(MAX_RETRIES):
-            try:
-                if os.path.exists(d):
-                    wait_for_unlock(d)
-                    os.remove(d)
-                shutil.copy2(s, d)
-                log_print(f"Copied: {s} -> {d}")
-                break
-            except Exception as e:
-                log_print(f"[{attempt+1}/{MAX_RETRIES}] Failed to copy {s} → {d}: {e}")
-                time.sleep(1)
-        else:
-            log_print(f"❌ Gave up copying {s}")
+        try:
+            shutil.copy2(src_file, dst_file)
+            log_print(f"Copied: {src_file} -> {dst_file}")
+        except Exception as e:
+            log_print(f"❌ Failed to copy {src_file} → {dst_file}: {e}")
 
 # Remove temp files
 try:
