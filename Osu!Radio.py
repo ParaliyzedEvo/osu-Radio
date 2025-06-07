@@ -1,4 +1,4 @@
-__version__ = "1.5.2"
+__version__ = "1.6.0+test"
 
 import sys
 import os
@@ -13,6 +13,7 @@ import tempfile
 import shutil
 import subprocess
 import tempfile
+from packaging import version
 from pathlib import Path
 from mutagen.mp3 import MP3
 from PySide6.QtCore import (
@@ -75,24 +76,77 @@ ICON_PATH = ASSETS_PATH / ICON_FILE
 
 # Utility functions
 def get_audio_path(song):
-    """Return full audio path for a song dictionary."""
+    # Return full audio path for a song dictionary.
     return Path(song["folder"]) / song["audio"]
 
-def check_for_update(current_version, skipped_versions=None, manual_check=False):
+from packaging import version  # Ensure this is imported at the top
+
+def check_for_update(current_version, skipped_versions=None, manual_check=False, include_prerelease=False):
+    url = "https://api.github.com/repos/Paraliyzedevo/osu-Radio/releases"
     try:
-        response = requests.get("https://api.github.com/repos/Paraliyzedevo/osu-Radio/releases/latest", timeout=5)
-        data = response.json()
-        latest_version = data["tag_name"]
-        # Only skip version if it's not a manual check
-        if not manual_check and skipped_versions and latest_version in skipped_versions:
+        response = requests.get(url, timeout=5)
+        releases = response.json()
+
+        # Parse all versions with their metadata
+        valid_releases = []
+        for release in releases:
+            tag = release.get("tag_name")
+            is_prerelease = release.get("prerelease", False)
+            if not tag:
+                continue
+
+            # Skip prereleases unless allowed
+            if is_prerelease and not include_prerelease:
+                continue
+
+            # Skip if it's in skipped list and it's not a manual check
+            if not manual_check and skipped_versions and tag in skipped_versions:
+                continue
+
+            try:
+                parsed_ver = version.parse(tag.lstrip("v"))  # remove "v" prefix if present
+                valid_releases.append((parsed_ver, release))
+            except Exception as e:
+                print(f"Invalid version tag: {tag} — {e}")
+                continue
+
+        if not valid_releases:
             return None, None
-        if latest_version != current_version:
-            return latest_version, data["assets"]
+
+        # Find the latest release by semantic version
+        latest_release = max(valid_releases, key=lambda tup: tup[0])
+        latest_version, release_data = latest_release
+
+        # Compare against current
+        parsed_current = version.parse(current_version.lstrip("v"))
+        parsed_latest = latest_release[0]
+        
+        if parsed_current == parsed_latest:
+            return None, None
+
+        # If current is a prerelease or build-tagged version and include_prerelease is False, treat stable as newer
+        if not include_prerelease and (parsed_current.is_prerelease or '+' in current_version):
+            if parsed_current >= parsed_latest:
+                print("[check_for_update] Forcing downgrade from pre-release to latest stable.")
+                return str(parsed_latest), release_data.get("assets", [])
+
+        # Normal version comparison
+        if parsed_current < parsed_latest:
+            return str(parsed_latest), release_data.get("assets", [])
+
+        # Only skip if both are stable and equal
+        if (
+            parsed_current == parsed_latest
+            and not parsed_current.is_prerelease
+            and '+' not in current_version
+        ):
+            return None, None
+
     except Exception as e:
         print(f"Update check failed: {e}")
     return None, None
 
-def download_and_install_update(assets, latest_version, skipped_versions, settings_path):
+def download_and_install_update(assets, latest_version, skipped_versions, settings_path, main_window=None):
     platform = sys.platform
     url = None
 
@@ -139,7 +193,9 @@ def download_and_install_update(assets, latest_version, skipped_versions, settin
         return
 
     if msg.clickedButton() != update_btn:
-        return  # User chose "Remind me later"
+        if main_window:
+            main_window.skip_downgrade_for_now = True
+        return
 
     # Proceed with update
     temp_dir = tempfile.mkdtemp()
@@ -150,7 +206,7 @@ def download_and_install_update(assets, latest_version, skipped_versions, settin
             progress = QProgressDialog("Downloading update...", "Cancel", 0, total)
             progress.setWindowModality(Qt.ApplicationModal)
             progress.setWindowTitle("osu!Radio Updater")
-            progress.setWindowIcon(ICON_PATH)
+            progress.setWindowIcon(QIcon(str(ICON_PATH)))
             progress.setMinimumWidth(400)
             progress.show()
 
@@ -504,7 +560,8 @@ class SettingsDialog(QDialog):
         self.videoCheck = QCheckBox("Enable Background Video"); self.videoCheck.setChecked(parent.video_enabled)
         self.autoplayCheck = QCheckBox("Autoplay on Startup"); self.autoplayCheck.setChecked(parent.autoplay)
         self.mediaKeyCheck = QCheckBox("Enable Media Key Support"); self.mediaKeyCheck.setChecked(parent.media_keys_enabled)
-        layout.addWidget(self.lightCheck); layout.addWidget(self.videoCheck); layout.addWidget(self.autoplayCheck); layout.addWidget(self.mediaKeyCheck)
+        self.allowPrereleaseCheck = QCheckBox("Include Pre-release Updates"); self.allowPrereleaseCheck.setChecked(parent.allow_prerelease)
+        layout.addWidget(self.lightCheck); layout.addWidget(self.videoCheck); layout.addWidget(self.autoplayCheck); layout.addWidget(self.mediaKeyCheck); layout.addWidget(self.allowPrereleaseCheck)
 
         self.opacitySlider = QSlider(Qt.Horizontal)
         self.opacitySlider.setRange(10, 100)
@@ -527,16 +584,17 @@ class SettingsDialog(QDialog):
             self.resCombo.setCurrentText(current)
         h4 = QHBoxLayout(); h4.addWidget(QLabel("Resolution:")); h4.addWidget(self.resCombo)
         layout.addLayout(h4)
+        
+        # Update button
+        update_button = QPushButton("Check for Updates")
+        update_button.clicked.connect(lambda: parent.check_updates(manual=True))
+        layout.addWidget(update_button)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.apply)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
         
-        # Update button
-        update_button = QPushButton("Check for Updates")
-        update_button.clicked.connect(lambda: parent.check_updates(manual=True))
-        layout.addWidget(update_button)
         
         # Save states for settings
         self._original_opacity = parent.ui_opacity
@@ -556,9 +614,22 @@ class SettingsDialog(QDialog):
         video_on = self.videoCheck.isChecked()
         autoplay = self.autoplayCheck.isChecked()
         media_keys = self.mediaKeyCheck.isChecked()
-        self.main.apply_settings(folder, light, opacity, w, h, hue, video_on, autoplay, media_keys)
+        allow_prerelease = self.allowPrereleaseCheck.isChecked()
+
+        # Store old pre-release state BEFORE applying settings
+        was_prerelease = self.main.allow_prerelease
+        now_prerelease = allow_prerelease
+
+        # Apply all user settings
+        self.main.apply_settings(folder, light, opacity, w, h, hue, video_on, autoplay, media_keys, allow_prerelease)
+
+        # If the toggle changed, check updates (and reset skip flag)
+        if was_prerelease != now_prerelease:
+            self.main.skip_downgrade_for_now = False
+            self.main.check_updates(manual=True)
+
         self.accept()
-        
+            
     def reject(self):
         # Restore original previewed values
         self.main.ui_effect.setOpacity(self._original_opacity)
@@ -603,6 +674,8 @@ class MainWindow(QMainWindow):
         self.video_enabled      = settings.get("video_enabled", True)
         self.autoplay           = settings.get("autoplay", False)
         self.media_keys_enabled = settings.get("media_keys_enabled", True)
+        self.allow_prerelease   = settings.get("allow_prerelease", False)
+        self.was_prerelease     = settings.get("was_prerelease", False)
         self.skipped_versions   = settings.get("skipped_versions", [])
         res                     = settings.get("resolution", "854×480")
         rw, rh = (854, 480)
@@ -621,6 +694,37 @@ class MainWindow(QMainWindow):
                 sys.exit()
         
         self.save_user_settings()
+        
+        self.downgrade_prompted = False
+        self.skip_downgrade_for_now = False
+        
+        if (
+            settings.get("was_prerelease", False)
+            and not self.allow_prerelease
+            and self.is_prerelease_version(__version__)
+            and not self.downgrade_prompted
+        ):
+            self.downgrade_prompted = True
+            choice = QMessageBox.question(
+                self,
+                "Return to Stable?",
+                "You're currently on a pre-release build, but pre-release updates have been disabled.\n\n"
+                "Would you like to return to the latest stable version?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if choice == QMessageBox.Yes:
+                latest_version, assets = check_for_update(
+                    current_version=__version__,
+                    skipped_versions=self.skipped_versions,
+                    manual_check=True,
+                    include_prerelease=False
+                )
+                if latest_version:
+                    download_and_install_update(assets, latest_version, self.skipped_versions, str(SETTINGS_FILE), self)
+                else:
+                    QMessageBox.information(self, "No Stable Update Found", "You're already on the most recent stable release.")
+            else:
+                self.skip_downgrade_for_now = True
 
         # Audio player
         self.setup_media_players()
@@ -683,7 +787,7 @@ class MainWindow(QMainWindow):
         # Create bottom control layout
         bot = QHBoxLayout()
 
-        # ── Volume slider + overlay ──
+        # Volume slider + overlay
         vol = QSlider(Qt.Horizontal)
         vol.setRange(0, 100)
         vol.setValue(30)
@@ -711,7 +815,7 @@ class MainWindow(QMainWindow):
         )
         bot.addWidget(vol_widget, 1)
 
-        # ── Seek slider + overlay ──
+        # Seek slider + overlay
         class SeekSlider(QSlider):
             seekRequested = Signal(int)
             def mousePressEvent(self, event):
@@ -773,7 +877,7 @@ class MainWindow(QMainWindow):
 
         bot.addWidget(seek_widget, 2)
         
-        # ── Playback and info label ──
+        # Playback and info label
         self.loop_btn = QPushButton()
         self.loop_btn.setToolTip("Loop: Off")
         self.update_loop_icon()
@@ -923,7 +1027,7 @@ class MainWindow(QMainWindow):
         self.apply_settings(
             self.osu_folder, self.light_mode, self.ui_opacity,
             w, h, self.hue, self.video_enabled, self.autoplay,
-            self.media_keys_enabled
+            self.media_keys_enabled, self.allow_prerelease
         )
         
         QTimer.singleShot(1000, lambda: self.check_updates())
@@ -932,15 +1036,53 @@ class MainWindow(QMainWindow):
         self.volume_label.setText(f"{v}%")
         
     def check_updates(self, manual=False):
-        current_version = __version__  # or however you define it
+        current_version = __version__
         skipped_versions = self.skipped_versions
-        latest_version, assets = check_for_update(current_version, skipped_versions, manual_check=manual)
-        if latest_version:
-            download_and_install_update(assets, latest_version, self.skipped_versions, str(SETTINGS_FILE))
-        if not latest_version:
-            if manual:
-                QMessageBox.information(self, "osu!Radio", "You're already on the latest version.")
+
+        # Skip automatic checks only if user already declined downgrade
+        if not manual and self.skip_downgrade_for_now:
+            print("[check_updates] Skipping auto update check due to earlier 'No' response.")
             return
+
+        # Pre-release downgrade offer
+        if manual and not self.allow_prerelease and self.is_prerelease_version(current_version):
+            choice = QMessageBox.question(
+                self,
+                "Stable Release Available?",
+                "You're currently on a pre-release build. Would you like to return to the latest stable version?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if choice == QMessageBox.Yes:
+                latest_version, assets = check_for_update(
+                    current_version=current_version,
+                    skipped_versions=skipped_versions,
+                    manual_check=True,
+                    include_prerelease=False
+                )
+                if latest_version:
+                    download_and_install_update(assets, latest_version, self.skipped_versions, str(SETTINGS_FILE), self)
+                else:
+                    QMessageBox.information(self, "No Stable Update Found", "You're already on the most recent release.")
+            else:
+                self.skip_downgrade_for_now = True
+            return
+
+        # Normal update check
+        latest_version, assets = check_for_update(
+            current_version=current_version,
+            skipped_versions=skipped_versions,
+            manual_check=manual,
+            include_prerelease=self.allow_prerelease
+        )
+
+        if latest_version:
+            download_and_install_update(assets, latest_version, self.skipped_versions, str(SETTINGS_FILE), self)
+        elif manual:
+            QMessageBox.information(self, "osu!Radio", "You're already on the latest version.")
+            
+    def is_prerelease_version(self, ver):
+        parsed = version.parse(ver)
+        return parsed.is_prerelease or '+' in ver
             
     def setup_media_players(self):
         self.audio = QMediaPlayer(self)
@@ -984,7 +1126,7 @@ class MainWindow(QMainWindow):
             self.bg_player.setPosition(0)
             self.bg_player.play()
 
-    def apply_settings(self, folder, light, opacity, w, h, hue, video_on, autoplay, media_keys):
+    def apply_settings(self, folder, light, opacity, w, h, hue, video_on, autoplay, media_keys, allow_prerelease):
         if folder != self.osu_folder and os.path.isdir(folder):
             self.osu_folder = folder
             self.reload_songs()
@@ -999,8 +1141,8 @@ class MainWindow(QMainWindow):
         self.autoplay = autoplay
         if self.media_keys_enabled != media_keys:
             self.media_keys_enabled = media_keys
-            self.update_media_key_listener()
-
+            self.update_media_key_listener()    
+        self.allow_prerelease = allow_prerelease
         self.setFixedSize(w, h)
         self.save_user_settings()
 
@@ -1258,6 +1400,8 @@ class MainWindow(QMainWindow):
             "video_enabled": True,
             "autoplay": False,
             "media_keys_enabled": True,
+            "allow_prerelease": False,
+            "was_prerelease": False,
             "resolution": "854×480",
             "skipped_versions": [],
         }
@@ -1282,6 +1426,8 @@ class MainWindow(QMainWindow):
             "video_enabled": self.video_enabled,
             "autoplay": self.autoplay,
             "media_keys_enabled": self.media_keys_enabled,
+            "allow_prerelease": self.allow_prerelease,
+            "was_prerelease": self.is_prerelease_version(__version__),
             "resolution": f"{self.width()}×{self.height()}",
             "skipped_versions": self.skipped_versions,
         }
