@@ -16,7 +16,7 @@ body:
   - type: textarea
     attributes:
       label: Bug description
-      description: How did you find the bug? Any additional details that might help?
+      description: How did you find the bug and what causes it?
     validations:
       required: true
   - type: textarea
@@ -32,3 +32,9 @@ body:
       description: The version you encountered this bug on. This is shown at the end of the settings overlay.
     validations:
       required: true
+  - type: textarea
+    attributes:
+      label: Additional information
+      description: Any additional details that might help?
+    validations:
+      required: false
