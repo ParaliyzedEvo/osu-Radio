@@ -354,6 +354,7 @@ def download_and_install_update(assets, latest_version, skipped_versions, settin
 
 class LibraryScanner(QThread):
     done = Signal(list)
+    progress_update = Signal(str)
 
     def __init__(self, folder):
         super().__init__()
@@ -380,6 +381,8 @@ class LibraryScanner(QThread):
                         key = (title, artist, mapper)
                         if key not in uniq:
                             uniq[key] = s
+                            msg = f"🎵 Found beatmap: {s['artist']} - {s['title']}"
+                            self.progress_update.emit(msg)
                     except Exception as e:
                         print(f"[LibraryScanner] Error parsing {full_path}: {e}")
 
@@ -969,7 +972,9 @@ class MainWindow(QMainWindow):
                             maps = data.get("maps", []) if isinstance(data, dict) else []
                         if isinstance(maps, list):
                             save_cache(self.osu_folder, maps)
-                            print(f"[startup] ✅ Imported {len(maps)} maps from legacy JSON.")
+                            for s in maps:
+                                self.progress_label.setText(f"🎵 Found beatmap: {s['artist']} - {s['title']}")
+                                QApplication.processEvents()
                             json_path.unlink()
                             cached = load_cache(self.osu_folder)
                             if cached:
@@ -1321,7 +1326,6 @@ class MainWindow(QMainWindow):
         SettingsDialog(self).exec()
 
     def reload_songs(self):
-        # Populate immediately (sync if no cache), then always rescan in background.
         print(f"[reload_songs] Scanning folder: {self.osu_folder}")
 
         # Stop previous scan if running
@@ -1333,43 +1337,51 @@ class MainWindow(QMainWindow):
                 self._scanner.terminate()
                 self._scanner.wait()
 
-        # Try cache
+        # Optional: load from cache first
         cached = load_cache(self.osu_folder)
         if cached:
             print("[reload_songs] ✅ Loaded from cache.")
             self.library = cached
             self.queue = list(cached)
-        else:
-            print("[reload_songs] ⚠️ No cache. Doing full scan...")
-            uniq = {}
-            for root, _, files in os.walk(self.osu_folder):
-                for fn in files:
-                    if fn.lower().endswith(".osu"):
-                        full_path = os.path.join(root, fn)
-                        try:
-                            s = OsuParser.parse(full_path)
-                            key = (
-                                s.get("title", "<unknown>"),
-                                s.get("artist", "<unknown>"),
-                                s.get("mapper", "<unknown>")
-                            )
-                            if key not in uniq:
-                                uniq[key] = s
-                                print(f"  🎵 Found beatmap: {s['artist']} - {s['title']}")
-                        except Exception as e:
-                            print(f"  ⚠️ Error parsing {full_path}: {e}")
-            self.library = list(uniq.values())
-            self.queue = list(self.library)
-            save_cache(self.osu_folder, self.library)
+            self.populate_list(self.queue)
+            self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
 
-        print(f"[reload_songs] ✅ Reloaded {len(self.library)} songs")
+        # Progress dialog with message label
+        self.progress = QProgressDialog("Importing beatmaps...", None, 0, 0, self)
+        self.progress.setWindowModality(Qt.ApplicationModal)
+        self.progress.setWindowTitle("osu!Radio")
+        self.progress.setMinimumWidth(400)
+        self.progress.setCancelButton(None)
+        self.progress.setMinimumDuration(0)
 
-        self.populate_list(self.queue)
-        self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
+        # Add label below progress bar
+        self.progress_label = QLabel("Starting scan…")
+        self.progress.setLabel(self.progress_label)
 
-        # Background scan
-        print("[reload_songs] Starting background rescan...")
+        # Confirmation if closed
+        def handle_close(ev):
+            reply = QMessageBox.question(
+                self,
+                "Cancel Beatmap Scan?",
+                "Are you sure you want to cancel scanning for beatmaps?\n\n"
+                "To run it again, click Reload Maps in the top right.",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if reply == QMessageBox.Yes:
+                if hasattr(self, "_scanner") and self._scanner.isRunning():
+                    self._scanner.requestInterruption()
+                self.progress.cancel()
+                ev.accept()
+            else:
+                ev.ignore()
+
+        self.progress.closeEvent = handle_close
+        self.progress.show()
+        QApplication.processEvents()
+
+        # Scanner thread
         self._scanner = LibraryScanner(self.osu_folder)
+        self._scanner.progress_update.connect(self.progress_label.setText)
         self._scanner.done.connect(self._on_reload_complete)
         self._scanner.start()
 
@@ -1423,12 +1435,18 @@ class MainWindow(QMainWindow):
             print("[save_user_settings] Failed to save settings:", e)
         
     def _on_reload_complete(self, library):
-        # Called when background thread finishes parsing.
         self.library = library
-        self.queue   = list(library)
+        self.queue = list(library)
         self.populate_list(self.queue)
-        print(f"[reload_complete] ✅ Found {len(library)} total songs after rescan.")
         self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
+
+        print(f"[reload_complete] ✅ Found {len(library)} total songs after rescan.")
+
+        if hasattr(self, "progress") and self.progress:
+            self.progress.close()
+            self.progress = None
+
+        QMessageBox.information(self, "Import Complete", f"Imported {len(library)} beatmaps.")
 
 
     def onSongContextMenu(self, point):
