@@ -1,0 +1,34 @@
+name: Bug report
+description: Report a broken issue in osu!Radio.
+body:
+
+  - type: dropdown
+    attributes:
+      label: Type
+      options:
+        - Crash to desktop
+        - App behaviour
+        - Performance
+        - Cosmetic
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Bug description
+      description: How did you find the bug? Any additional details that might help?
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Screenshots or videos
+      description: Add screenshots or videos that show the bug here.
+      placeholder: Drag and drop the screenshots/videos into this box.
+    validations:
+      required: false
+  - type: input
+    attributes:
+      label: Version
+      description: The version you encountered this bug on. This is shown at the end of the settings overlay.
+    validations:
+      required: true
