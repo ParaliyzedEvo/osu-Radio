@@ -4,7 +4,16 @@ body:
 
   - type: dropdown
     attributes:
+      label: Updater or the app itself?
+      options:
+        - Updater
+        - App
+    validations:
+      required: true
+  - type: dropdown
+    attributes:
       label: Type
+      description: What type of bug is it?
       options:
         - Crash to desktop
         - App behaviour
