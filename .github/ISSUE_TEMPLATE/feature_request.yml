@@ -1,0 +1,22 @@
+name: New Feature
+description: Request a new feature for osu!Radio.
+body:
+  - type: textarea
+    attributes:
+      label: Feature description
+      description: Describe the feature you want to be added to the app
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Screenshots or videos
+      description: Add screenshots or videos that show the feature in osu!Radio.
+      placeholder: Drag and drop the screenshots/videos into this box.
+    validations:
+      required: false
+  - type: textarea
+    attributes:
+      label: Additional information
+      description: Any additional details that might help?
+    validations:
+      required: false
