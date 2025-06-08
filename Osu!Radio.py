@@ -38,8 +38,9 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QVideoSink
 
-IS_WINDOWS = sys.platform.startswith("win")
-BASE_PATH = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
+# Paths
+IS_WINDOWS = os.name == "nt"
+BASE_PATH = Path(getattr(sys, "frozen", False) and sys.executable or __file__).resolve().parent
 DATABASE_FILE = BASE_PATH / "songs.db"
 SETTINGS_FILE = BASE_PATH / "settings.json"
 
@@ -75,75 +76,133 @@ else:
 ICON_PATH = ASSETS_PATH / ICON_FILE
 
 # Utility functions
-def get_audio_path(song):
-    # Return full audio path for a song dictionary.
+def get_audio_path(song: dict) -> Path:
     return Path(song["folder"]) / song["audio"]
-
-from packaging import version  # Ensure this is imported at the top
+    
+def init_db():
+    with sqlite3.connect(DATABASE_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS songs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT,
+                artist TEXT,
+                mapper TEXT,
+                audio TEXT,
+                background TEXT,
+                length INTEGER,
+                osu_file TEXT,
+                folder TEXT,
+                UNIQUE(title, artist, mapper)
+            )""")
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )""")
+        conn.commit()
+        
+def load_cache(folder: str) -> list | None:
+    if not DATABASE_FILE.exists():
+        return None
+    try:
+        with sqlite3.connect(DATABASE_FILE) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT value FROM metadata WHERE key = 'folder_mtime'")
+            mtime = cursor.fetchone()
+            if mtime and mtime[0] == str(os.path.getmtime(folder)):
+                cursor.execute("SELECT title, artist, mapper, audio, background, length, osu_file, folder FROM songs")
+                return [
+                    dict(zip(["title", "artist", "mapper", "audio", "background", "length", "osu_file", "folder"], row))
+                    for row in cursor.fetchall()
+                ]
+    except Exception as e:
+        print(f"[load_cache] Error: {e}")
+    return None
+    
+def save_cache(folder: str, maps: list):
+    init_db()
+    try:
+        with sqlite3.connect(DATABASE_FILE) as conn:
+            cursor = conn.cursor()
+            cursor.execute("BEGIN TRANSACTION")
+            for s in maps:
+                cursor.execute("""
+                    INSERT OR REPLACE INTO songs
+                    (title, artist, mapper, audio, background, length, osu_file, folder)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""", (
+                        s.get("title"), s.get("artist"), s.get("mapper"),
+                        s.get("audio"), s.get("background"), s.get("length", 0),
+                        s.get("osu_file"), s.get("folder")
+                    ))
+            cursor.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
+                           ('folder_mtime', str(os.path.getmtime(folder))))
+            conn.commit()
+    except Exception as e:
+        print(f"[save_cache] Error: {e}")
+        
+def read_osu_lines(path: str) -> list:
+    for enc in ("utf-8", "utf-8-sig", "cp1251", "latin-1"):
+        try:
+            with open(path, encoding=enc) as f:
+                return f.read().splitlines()
+        except UnicodeDecodeError:
+            continue
+    with open(path, encoding="utf-8", errors="ignore") as f:
+        return f.read().splitlines()
+        
+class OsuParser:
+    @staticmethod
+    def parse(path: str) -> dict:
+        data = {
+            "audio": "", "title": "", "artist": "", "mapper": "",
+            "background": "", "length": 0,
+            "osu_file": path, "folder": str(Path(path).parent)
+        }
+        for line in read_osu_lines(path):
+            line = line.strip()
+            if m := re.match(r'audiofilename\s*:\s*(.+)', line, re.IGNORECASE):
+                data["audio"] = m.group(1).strip()
+            elif line.lower().startswith("title:"):
+                data["title"] = line.split(":", 1)[1].strip()
+            elif line.lower().startswith("artist:"):
+                data["artist"] = line.split(":", 1)[1].strip()
+            elif line.lower().startswith("creator:"):
+                data["mapper"] = line.split(":", 1)[1].strip()
+            elif line.startswith("0,0") and not data["background"]:
+                if bg := re.search(r'0,0,"([^"]+)"', line):
+                    data["background"] = bg.group(1)
+        try:
+            mp3_path = Path(data["folder"]) / data["audio"]
+            mp3 = MP3(str(mp3_path))
+            data["length"] = int(mp3.info.length * 1000)
+        except Exception:
+            pass
+        return data
 
 def check_for_update(current_version, skipped_versions=None, manual_check=False, include_prerelease=False):
     url = "https://api.github.com/repos/Paraliyzedevo/osu-Radio/releases"
     try:
-        response = requests.get(url, timeout=5)
-        releases = response.json()
-
-        # Parse all versions with their metadata
-        valid_releases = []
-        for release in releases:
-            tag = release.get("tag_name")
-            is_prerelease = release.get("prerelease", False)
-            if not tag:
+        releases = requests.get(url, timeout=5).json()
+        valid = []
+        for r in releases:
+            tag = r.get("tag_name", "").lstrip("v")
+            if not tag or (r.get("prerelease") and not include_prerelease):
                 continue
-
-            # Skip prereleases unless allowed
-            if is_prerelease and not include_prerelease:
-                continue
-
-            # Skip if it's in skipped list and it's not a manual check
             if not manual_check and skipped_versions and tag in skipped_versions:
                 continue
-
             try:
-                parsed_ver = version.parse(tag.lstrip("v"))  # remove "v" prefix if present
-                valid_releases.append((parsed_ver, release))
+                valid.append((version.parse(tag), r))
             except Exception as e:
-                print(f"Invalid version tag: {tag} — {e}")
-                continue
-
-        if not valid_releases:
+                print(f"[check_for_update] Invalid version tag: {tag} — {e}")
+        if not valid:
             return None, None
-
-        # Find the latest release by semantic version
-        latest_release = max(valid_releases, key=lambda tup: tup[0])
-        latest_version, release_data = latest_release
-
-        # Compare against current
+        latest_ver, latest_data = max(valid, key=lambda v: v[0])
         parsed_current = version.parse(current_version.lstrip("v"))
-        parsed_latest = latest_release[0]
-        
-        if parsed_current == parsed_latest:
-            return None, None
-
-        # If current is a prerelease or build-tagged version and include_prerelease is False, treat stable as newer
-        if not include_prerelease and (parsed_current.is_prerelease or '+' in current_version):
-            if parsed_current >= parsed_latest:
-                print("[check_for_update] Forcing downgrade from pre-release to latest stable.")
-                return str(parsed_latest), release_data.get("assets", [])
-
-        # Normal version comparison
-        if parsed_current < parsed_latest:
-            return str(parsed_latest), release_data.get("assets", [])
-
-        # Only skip if both are stable and equal
-        if (
-            parsed_current == parsed_latest
-            and not parsed_current.is_prerelease
-            and '+' not in current_version
-        ):
-            return None, None
-
+        if parsed_current < latest_ver:
+            return str(latest_ver), latest_data.get("assets", [])
     except Exception as e:
-        print(f"Update check failed: {e}")
+        print(f"[check_for_update] Failed: {e}")
     return None, None
 
 def download_and_install_update(assets, latest_version, skipped_versions, settings_path, main_window=None):
@@ -293,122 +352,6 @@ def download_and_install_update(assets, latest_version, skipped_versions, settin
         shutil.rmtree(temp_dir, ignore_errors=True)
         sys.exit(0)
 
-def init_db():
-    conn = sqlite3.connect(DATABASE_FILE)
-    cursor = conn.cursor()
-    # Create songs table
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS songs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT,
-            artist TEXT,
-            mapper TEXT,
-            audio TEXT,
-            background TEXT,
-            length INTEGER,
-            osu_file TEXT,
-            folder TEXT,
-            UNIQUE(title, artist, mapper) 
-        )
-    """)
-    # Create metadata table for folder modification time
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS metadata (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        )
-    """)
-    conn.commit()
-    conn.close()
-
-def load_cache(folder):
-    if not DATABASE_FILE.exists():
-        return None
-
-    conn = sqlite3.connect(DATABASE_FILE)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("SELECT value FROM metadata WHERE key = 'folder_mtime'")
-        row = cursor.fetchone()
-        if row and row[0] == str(os.path.getmtime(folder)):
-            cursor.execute("SELECT title, artist, mapper, audio, background, length, osu_file, folder FROM songs")
-            return [
-                {
-                    "title": r[0], "artist": r[1], "mapper": r[2],
-                    "audio": r[3], "background": r[4], "length": r[5],
-                    "osu_file": r[6], "folder": r[7]
-                }
-                for r in cursor.fetchall()
-            ]
-    except Exception as e:
-        print(f"[load_cache] Failed: {e}")
-    finally:
-        conn.close()
-    return None
-
-def save_cache(folder, maps):
-    init_db()
-    conn = sqlite3.connect(DATABASE_FILE)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("BEGIN TRANSACTION")
-
-        for s_map in maps:
-            cursor.execute("""
-                INSERT OR REPLACE INTO songs (title, artist, mapper, audio, background, length, osu_file, folder)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                s_map.get("title"), s_map.get("artist"), s_map.get("mapper"),
-                s_map.get("audio"), s_map.get("background"), s_map.get("length", 0),
-                s_map.get("osu_file"), s_map.get("folder")
-            ))
-
-        cursor.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
-                       ('folder_mtime', str(os.path.getmtime(folder))))
-        conn.commit()
-    except Exception as e:
-        print(f"[save_cache] Failed: {e}")
-        conn.rollback()
-    finally:
-        conn.close()
-        
-def read_osu_lines(path):
-    for enc in ("utf-8", "utf-8-sig", "cp1251", "latin-1"):
-        try:
-            with open(path, encoding=enc) as f:
-                return f.read().splitlines()
-        except UnicodeDecodeError:
-            pass
-    with open(path, encoding="utf-8", errors="ignore") as f:
-        return f.read().splitlines()
-
-class OsuParser:
-    @staticmethod
-    def parse(path):
-        data = {"audio": "", "title": "", "artist": "", "mapper": "",
-                "background": "", "length": 0, "osu_file": path,
-                "folder": str(Path(path).parent)}
-        for line in read_osu_lines(path):
-            line = line.strip()
-            if m := re.match(r'\s*audiofilename\s*:\s*(.+)', line, re.IGNORECASE):
-                data["audio"] = m.group(1).strip()
-            elif line.lower().startswith("title:"):
-                data["title"] = line.split(":", 1)[1].strip()
-            elif line.lower().startswith("artist:"):
-                data["artist"] = line.split(":", 1)[1].strip()
-            elif line.lower().startswith("creator:"):
-                data["mapper"] = line.split(":", 1)[1].strip()
-            elif line.startswith("0,0") and not data["background"]:
-                if bg := re.search(r'0,0,"([^"]+)"', line):
-                    data["background"] = bg.group(1)
-        try:
-            audio_path = Path(data["folder"]) / data["audio"]
-            mp = MP3(str(audio_path))
-            data["length"] = int(mp.info.length * 1000)
-        except:
-            pass
-        return data
-
 class LibraryScanner(QThread):
     done = Signal(list)
 
@@ -431,33 +374,27 @@ class LibraryScanner(QThread):
                     full_path = os.path.join(root, fn)
                     try:
                         s = OsuParser.parse(full_path)
-                        # Ensure essential keys exist for uniqueness, provide defaults if not
                         title = s.get("title", f"Unknown Title - {fn}")
                         artist = s.get("artist", "Unknown Artist")
                         mapper = s.get("mapper", "Unknown Mapper")
                         key = (title, artist, mapper)
-
-                        if key not in uniq: # Add if truly new based on primary metadata
+                        if key not in uniq:
                             uniq[key] = s
                     except Exception as e:
                         print(f"[LibraryScanner] Error parsing {full_path}: {e}")
-                        pass
-                        
+
         if self.isInterruptionRequested():
             print("[LibraryScanner] Interruption requested before saving cache.")
             return
+
         library = list(uniq.values())
         print(f"[LibraryScanner] Scan complete. Found {len(library)} unique beatmaps.")
-        
-        # Check for interruption again before potentially lengthy save operation
-        if self.isInterruptionRequested():
-            print("[LibraryScanner] Interruption requested before saving cache.")
-            return
         save_cache(self.folder, library)
-        # And again before emitting signal
+
         if self.isInterruptionRequested():
             print("[LibraryScanner] Interruption requested before emitting 'done' signal.")
             return
+
         self.done.emit(library)
         print("[LibraryScanner] 'done' signal emitted.")
 
@@ -471,31 +408,42 @@ class MarqueeLabel(QLabel):
         super().setText(txt)
         fm = self.fontMetrics()
         text_w = fm.horizontalAdvance(txt)
-        avail  = self.width()
+        avail = self.width()
         self._anim.stop()
         self._offset = 0
+
         if text_w > avail:
             span = text_w - avail + 20
             a1 = QPropertyAnimation(self, b"offset", self)
-            a1.setStartValue(0); a1.setEndValue(span); a1.setDuration(span * 20)
+            a1.setStartValue(0)
+            a1.setEndValue(span)
+            a1.setDuration(span * 20)
             a1.setEasingCurve(QEasingCurve.Linear)
+
             p1 = QPauseAnimation(1000, self)
+
             a2 = QPropertyAnimation(self, b"offset", self)
-            a2.setStartValue(span); a2.setEndValue(0); a2.setDuration(span * 20)
+            a2.setStartValue(span)
+            a2.setEndValue(0)
+            a2.setDuration(span * 20)
             a2.setEasingCurve(QEasingCurve.Linear)
+
             p2 = QPauseAnimation(1000, self)
+
             self._anim.clear()
-            for a in (a1, p1, a2, p2): self._anim.addAnimation(a)
+            self._anim.addAnimation(a1)
+            self._anim.addAnimation(p1)
+            self._anim.addAnimation(a2)
+            self._anim.addAnimation(p2)
             self._anim.setLoopCount(-1)
             self._anim.start()
         else:
             self.update()
 
     def paintEvent(self, ev):
-        p = QPainter(self)
-        p.setClipRect(self.rect())
-        p.drawText(-self._offset, self.height() - 5, self.text())
-        p.end()
+        painter = QPainter(self)
+        painter.setClipRect(self.rect())
+        painter.drawText(-self._offset, self.height() - 5, self.text())
 
     def offset(self): return self._offset
     def setOffset(self, v): self._offset = v; self.update()
@@ -511,7 +459,6 @@ class BackgroundWidget(QWidget):
         self.effect.setStrength(1.0)
         self.setGraphicsEffect(self.effect)
 
-        # Debounce timer for resizing
         self._resize_timer = QTimer(self)
         self._resize_timer.setSingleShot(True)
         self._resize_timer.timeout.connect(self._rescale_pixmap)
@@ -548,90 +495,129 @@ class SettingsDialog(QDialog):
         self.setWindowTitle("Settings")
         self.setFixedSize(400, 350)
         self.main = parent
+
         layout = QVBoxLayout(self)
 
-        self.folderEdit = QLineEdit(parent.osu_folder)
-        browseBtn = QPushButton("Browse…")
-        browseBtn.clicked.connect(self.browse_folder)
-        h1 = QHBoxLayout(); h1.addWidget(QLabel("Songs Folder:")); h1.addWidget(self.folderEdit); h1.addWidget(browseBtn)
-        layout.addLayout(h1)
+        # 🗂 Songs folder selection
+        self.folder_edit = QLineEdit(parent.osu_folder)
+        browse_btn = QPushButton("Browse…")
+        browse_btn.clicked.connect(self.browse_folder)
 
-        self.lightCheck = QCheckBox("Light Mode"); self.lightCheck.setChecked(parent.light_mode)
-        self.videoCheck = QCheckBox("Enable Background Video"); self.videoCheck.setChecked(parent.video_enabled)
-        self.autoplayCheck = QCheckBox("Autoplay on Startup"); self.autoplayCheck.setChecked(parent.autoplay)
-        self.mediaKeyCheck = QCheckBox("Enable Media Key Support"); self.mediaKeyCheck.setChecked(parent.media_keys_enabled)
-        self.allowPrereleaseCheck = QCheckBox("Include Pre-release Updates"); self.allowPrereleaseCheck.setChecked(parent.allow_prerelease)
-        layout.addWidget(self.lightCheck); layout.addWidget(self.videoCheck); layout.addWidget(self.autoplayCheck); layout.addWidget(self.mediaKeyCheck); layout.addWidget(self.allowPrereleaseCheck)
+        folder_layout = QHBoxLayout()
+        folder_layout.addWidget(QLabel("Songs Folder:"))
+        folder_layout.addWidget(self.folder_edit)
+        folder_layout.addWidget(browse_btn)
+        layout.addLayout(folder_layout)
 
-        self.opacitySlider = QSlider(Qt.Horizontal)
-        self.opacitySlider.setRange(10, 100)
-        self.opacitySlider.setValue(int(parent.ui_opacity * 100))
-        self.opacitySlider.valueChanged.connect(lambda v: parent.ui_effect.setOpacity(v / 100))
-        h2 = QHBoxLayout(); h2.addWidget(QLabel("UI Opacity:")); h2.addWidget(self.opacitySlider)
-        layout.addLayout(h2)
+        # 🌗 Toggles
+        self.light_mode_checkbox = QCheckBox("Light Mode")
+        self.video_checkbox = QCheckBox("Enable Background Video")
+        self.autoplay_checkbox = QCheckBox("Autoplay on Startup")
+        self.media_key_checkbox = QCheckBox("Enable Media Key Support")
+        self.prerelease_checkbox = QCheckBox("Include Pre-release Updates")
 
-        self.hueSlider = QSlider(Qt.Horizontal)
-        self.hueSlider.setRange(0, 360); self.hueSlider.setValue(parent.hue)
-        self.hueSlider.valueChanged.connect(lambda v: parent.bg_widget.effect.setColor(QColor.fromHsv(v, 255, 255)))
-        h3 = QHBoxLayout(); h3.addWidget(QLabel("Hue:")); h3.addWidget(self.hueSlider)
-        layout.addLayout(h3)
+        self.light_mode_checkbox.setChecked(parent.light_mode)
+        self.video_checkbox.setChecked(parent.video_enabled)
+        self.autoplay_checkbox.setChecked(parent.autoplay)
+        self.media_key_checkbox.setChecked(parent.media_keys_enabled)
+        self.prerelease_checkbox.setChecked(parent.allow_prerelease)
 
-        self.resCombo = QComboBox()
-        self.resolutions = {"1920×1080": (1920, 1080), "1280×720": (1280, 720), "854×480": (854, 480), "640×360": (640, 360), "480×270": (480, 270)}
-        self.resCombo.addItems(self.resolutions)
-        current = f"{parent.width()}×{parent.height()}"
-        if current in self.resolutions:
-            self.resCombo.setCurrentText(current)
-        h4 = QHBoxLayout(); h4.addWidget(QLabel("Resolution:")); h4.addWidget(self.resCombo)
-        layout.addLayout(h4)
-        
-        # Update button
-        update_button = QPushButton("Check for Updates")
-        update_button.clicked.connect(lambda: parent.check_updates(manual=True))
-        layout.addWidget(update_button)
+        for checkbox in (
+            self.light_mode_checkbox, self.video_checkbox, self.autoplay_checkbox,
+            self.media_key_checkbox, self.prerelease_checkbox
+        ):
+            layout.addWidget(checkbox)
 
+        # 🎚 Opacity slider
+        self.opacity_slider = QSlider(Qt.Horizontal)
+        self.opacity_slider.setRange(10, 100)
+        self.opacity_slider.setValue(int(parent.ui_opacity * 100))
+        self.opacity_slider.valueChanged.connect(
+            lambda v: parent.ui_effect.setOpacity(v / 100)
+        )
+
+        opacity_layout = QHBoxLayout()
+        opacity_layout.addWidget(QLabel("UI Opacity:"))
+        opacity_layout.addWidget(self.opacity_slider)
+        layout.addLayout(opacity_layout)
+
+        # 🎨 Hue slider
+        self.hue_slider = QSlider(Qt.Horizontal)
+        self.hue_slider.setRange(0, 360)
+        self.hue_slider.setValue(parent.hue)
+        self.hue_slider.valueChanged.connect(
+            lambda v: parent.bg_widget.effect.setColor(QColor.fromHsv(v, 255, 255))
+        )
+
+        hue_layout = QHBoxLayout()
+        hue_layout.addWidget(QLabel("Hue:"))
+        hue_layout.addWidget(self.hue_slider)
+        layout.addLayout(hue_layout)
+
+        # 🖥 Resolution dropdown
+        self.res_combo = QComboBox()
+        self.resolutions = {
+            "1920×1080": (1920, 1080),
+            "1280×720": (1280, 720),
+            "854×480": (854, 480),
+            "640×360": (640, 360),
+            "480×270": (480, 270),
+        }
+        self.res_combo.addItems(self.resolutions)
+        current_res = f"{parent.width()}×{parent.height()}"
+        if current_res in self.resolutions:
+            self.res_combo.setCurrentText(current_res)
+
+        res_layout = QHBoxLayout()
+        res_layout.addWidget(QLabel("Resolution:"))
+        res_layout.addWidget(self.res_combo)
+        layout.addLayout(res_layout)
+
+        # 🔄 Update button
+        update_btn = QPushButton("Check for Updates")
+        update_btn.clicked.connect(lambda: parent.check_updates(manual=True))
+        layout.addWidget(update_btn)
+
+        # ✅ / ❌ Buttons
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.apply)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
-        
-        
-        # Save states for settings
+
+        # Preview state backup
         self._original_opacity = parent.ui_opacity
         self._original_hue = parent.hue
 
     def browse_folder(self):
-        d = QFileDialog.getExistingDirectory(self, "Select osu! Songs Folder")
-        if d: self.folderEdit.setText(d)
+        folder = QFileDialog.getExistingDirectory(self, "Select osu! Songs Folder")
+        if folder:
+            self.folder_edit.setText(folder)
 
     def apply(self):
-        folder = self.folderEdit.text()
-        light = self.lightCheck.isChecked()
-        opacity = self.opacitySlider.value() / 100
-        hue = self.hueSlider.value()
-        res = self.resCombo.currentText()
-        w, h = self.resolutions[res]
-        video_on = self.videoCheck.isChecked()
-        autoplay = self.autoplayCheck.isChecked()
-        media_keys = self.mediaKeyCheck.isChecked()
-        allow_prerelease = self.allowPrereleaseCheck.isChecked()
+        folder = self.folder_edit.text()
+        light = self.light_mode_checkbox.isChecked()
+        opacity = self.opacity_slider.value() / 100
+        hue = self.hue_slider.value()
+        res = self.res_combo.currentText()
+        w, h = self.resolutions.get(res, (854, 480))
+        video_on = self.video_checkbox.isChecked()
+        autoplay = self.autoplay_checkbox.isChecked()
+        media_keys = self.media_key_checkbox.isChecked()
+        allow_prerelease = self.prerelease_checkbox.isChecked()
 
-        # Store old pre-release state BEFORE applying settings
         was_prerelease = self.main.allow_prerelease
-        now_prerelease = allow_prerelease
+        self.main.apply_settings(
+            folder, light, opacity, w, h, hue,
+            video_on, autoplay, media_keys, allow_prerelease
+        )
 
-        # Apply all user settings
-        self.main.apply_settings(folder, light, opacity, w, h, hue, video_on, autoplay, media_keys, allow_prerelease)
-
-        # If the toggle changed, check updates (and reset skip flag)
-        if was_prerelease != now_prerelease:
+        if was_prerelease != allow_prerelease:
             self.main.skip_downgrade_for_now = False
             self.main.check_updates(manual=True)
 
         self.accept()
-            
+
     def reject(self):
-        # Restore original previewed values
         self.main.ui_effect.setOpacity(self._original_opacity)
         self.main.bg_widget.effect.setColor(QColor.fromHsv(self._original_hue, 255, 255))
         self.main.ui_opacity = self._original_opacity
@@ -659,7 +645,6 @@ class MainWindow(QMainWindow):
         self.setMaximumSize(max_w, max_h)
 
         # Load settings
-        # Load from file
         settings = self.load_user_settings()
 
         # Apply defaults if missing
@@ -674,6 +659,7 @@ class MainWindow(QMainWindow):
         self.video_enabled      = settings.get("video_enabled", True)
         self.autoplay           = settings.get("autoplay", False)
         self.media_keys_enabled = settings.get("media_keys_enabled", True)
+        self.vol                = settings.get("volume", 30)
         self.allow_prerelease   = settings.get("allow_prerelease", False)
         self.was_prerelease     = settings.get("was_prerelease", False)
         self.skipped_versions   = settings.get("skipped_versions", [])
@@ -790,12 +776,11 @@ class MainWindow(QMainWindow):
         # Volume slider + overlay
         vol = QSlider(Qt.Horizontal)
         vol.setRange(0, 100)
-        vol.setValue(30)
-        self.volume_label = QLabel("30%")
-        vol.valueChanged.connect(self._update_volume_label)
+        vol.setValue(self.vol)
+        self.audio_out.setVolume(self.vol / 100)
+        self.volume_label = QLabel(f"{self.vol}%")
         self.volume_label.setVisible(True)
-        vol.valueChanged.connect(lambda v: self.audio_out.setVolume(v / 100))
-        self.audio_out.setVolume(0.3)
+        vol.valueChanged.connect(self.set_volume)
 
         vol_widget = QWidget()
         vol_widget.setMinimumHeight(30)
@@ -817,7 +802,9 @@ class MainWindow(QMainWindow):
 
         # Seek slider + overlay
         class SeekSlider(QSlider):
+            # Custom QSlider that supports click-to-seek behavior.
             seekRequested = Signal(int)
+
             def mousePressEvent(self, event):
                 if event.button() == Qt.LeftButton:
                     x = event.position().x() if hasattr(event, "position") else event.x()
@@ -829,6 +816,7 @@ class MainWindow(QMainWindow):
 
         self.slider = SeekSlider(Qt.Horizontal)
         self.slider.seekRequested.connect(self.seek)
+        self.connect_slider_signals()
         self.slider.setMouseTracking(True)
         self.slider.installEventFilter(self)
         self.slider.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -911,6 +899,7 @@ class MainWindow(QMainWindow):
 
         self.now_lbl = MarqueeLabel("—")
         self.now_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.now_lbl.setToolTip(self.now_lbl.text())
         min_w = self.now_lbl.fontMetrics().averageCharWidth() * 15
         self.now_lbl.setMinimumWidth(min_w)
         bot.addWidget(self.now_lbl, 1)
@@ -943,8 +932,8 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence(Qt.Key_MediaPause),    self, self.pause_song)
 
         # connect slider range updates
-        self.audio.durationChanged.connect(self.update_duration)
         self.audio.positionChanged.connect(self.update_position)
+        self.audio.durationChanged.connect(self.update_duration)
         
         # register global media-key hotkeys
         # arguments: hWnd (0 for all windows), id, fsModifiers, vk
@@ -955,29 +944,22 @@ class MainWindow(QMainWindow):
         else:
             print("Global hotkeys not available on this platform.")
             
-        cached = load_cache(self.osu_folder)    
-        # Ensure osu_folder is valid
-        if not self.osu_folder or not os.path.isdir(self.osu_folder):
-            self.osu_folder = QFileDialog.getExistingDirectory(self, "Select osu! Songs Folder")
-            if not self.osu_folder:
-                sys.exit()
-            self.save_user_settings()
-
-        # Try loading cache
+        # Load from cache if available
         cached = load_cache(self.osu_folder)
         if cached:
+            print(f"[startup] ✅ Loaded {len(cached)} maps from cache.")
             self.library = cached
             self.queue = list(cached)
             self.populate_list(self.queue)
             self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
         else:
-            # No cache found: ask user to rebuild
-            reply = QMessageBox.question(
+            print("[startup] ⚠️ No cache found — will prompt for rescan.")
+            prompt = QMessageBox.question(
                 self, "Cache Missing",
-                "No cache found. Would you like to scan your osu! songs folder and build the cache?",
+                "No song cache was found.\nWould you like to scan your osu! songs folder?",
                 QMessageBox.Yes | QMessageBox.No
             )
-            if reply == QMessageBox.Yes:
+            if prompt == QMessageBox.Yes:
                 json_path = BASE_PATH / "library_cache.json"
                 if json_path.exists():
                     try:
@@ -985,42 +967,21 @@ class MainWindow(QMainWindow):
                         with open(json_path, "r", encoding="utf-8") as f:
                             data = json.load(f)
                             maps = data.get("maps", []) if isinstance(data, dict) else []
-                            print(f"[startup] ✅ Loaded JSON. Found {len(maps)} maps.")
-                            print(f"[startup] ✅ JSON loaded. Type: {type(maps)}, Length: {len(maps) if isinstance(maps, list) else 'N/A'}")
                         if isinstance(maps, list):
-                            print(f"[startup] ✅ Loaded {len(maps)} songs from library_cache.json")
                             save_cache(self.osu_folder, maps)
-                            print("[startup] Listing all imported beatmaps from JSON:")
-                            for s in maps:
-                                print(f"  🎵 Imported beatmap: {s['artist']} - {s['title']}")
-                            self.library = maps
-                            self.queue = list(maps)
-                            self.populate_list(self.queue)
-                            self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
-                            print(f"[startup] Imported {len(maps)} maps from legacy JSON.")
-                            # 🔥 Delete old cache file
+                            print(f"[startup] ✅ Imported {len(maps)} maps from legacy JSON.")
                             json_path.unlink()
-                            print("[startup] Deleted library_cache.json.")
-                            # Import was successful, now load from SQLite                           
                             cached = load_cache(self.osu_folder)
                             if cached:
                                 self.library = cached
                                 self.queue = list(cached)
                                 self.populate_list(self.queue)
                                 self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
-                                print(f"[startup] ✅ Confirmed import into SQLite. {len(cached)} maps loaded.")
                                 return
-                            else:
-                                print("[startup] ❌ Failed to load from SQLite after JSON import, doing full scan...")
-                                self.reload_songs()
                     except Exception as e:
-                        import traceback
-                        print(f"[startup] Failed to import from JSON cache: {e}")
-                        # If JSON fails or doesn't exist, fall back to full scan
-                        self.reload_songs()
-                else:
-                    print("[startup] No legacy JSON cache found. Running full scan...")
-                    self.reload_songs()
+                        print(f"[startup] Failed to import from legacy JSON: {e}")
+                print("[startup] Starting full scan...")
+                self.reload_songs()
             else:
                 sys.exit()
             
@@ -1034,6 +995,12 @@ class MainWindow(QMainWindow):
         
     def _update_volume_label(self, v):
         self.volume_label.setText(f"{v}%")
+        
+    def set_volume(self, v):
+        self.audio_out.setVolume(v / 100)
+        self._update_volume_label(v)
+        self.vol = v
+        self.save_user_settings()
         
     def check_updates(self, manual=False):
         current_version = __version__
@@ -1085,9 +1052,11 @@ class MainWindow(QMainWindow):
         return parsed.is_prerelease or '+' in ver
             
     def setup_media_players(self):
+        # Initialize QMediaPlayer and QAudioOutput.
         self.audio = QMediaPlayer(self)
         self.audio_out = QAudioOutput(self)
         self.audio.setAudioOutput(self.audio_out)
+
         self.audio.playbackStateChanged.connect(self.update_play_pause_icon)
         self.audio.mediaStatusChanged.connect(self._on_audio_status)
         self.audio.errorOccurred.connect(
@@ -1095,6 +1064,36 @@ class MainWindow(QMainWindow):
         )
 
         self.audio_out.setVolume(0.3)
+        
+    def connect_slider_signals(self):
+        # Link slider drag behavior and update preview time.
+        self.slider.sliderPressed.connect(lambda: setattr(self, "_user_dragging", True))
+        self.slider.sliderReleased.connect(lambda: (
+            setattr(self, "_user_dragging", False),
+            self.audio.setPosition(self.slider.value())
+        ))
+
+        self.slider.valueChanged.connect(lambda v: (
+            self.elapsed_label.setText(self.format_time(v))
+            if getattr(self, "_user_dragging", False) else None
+        ))
+        
+    def update_position(self, pos):
+        if not getattr(self, "_user_dragging", False):
+            self.slider.setValue(pos)
+            self.elapsed_label.setText(self.format_time(pos))
+
+    def update_duration(self, duration):
+        self.slider.setRange(0, duration)
+        self.total_label.setText(self.format_time(duration))
+        
+    def slider_tooltip(self, event):
+        if self.audio.duration() > 0:
+            x = event.position().x() if hasattr(event, "position") else event.x()
+            ratio = x / self.slider.width()
+            pos = int(ratio * self.audio.duration())
+            mins, secs = divmod(pos // 1000, 60)
+            QToolTip.showText(QCursor.pos(), f"{mins}:{secs:02d}")
 
     def format_time(self, ms):
         mins, secs = divmod(ms // 1000, 60)
@@ -1102,12 +1101,7 @@ class MainWindow(QMainWindow):
         
     def eventFilter(self, source, event):
         if source == self.slider and event.type() == QEvent.MouseMove:
-            if self.audio.duration() > 0:
-                x = event.position().x()
-                ratio = x / self.slider.width()
-                pos = int(ratio * self.audio.duration())
-                mins, secs = divmod(pos // 1000, 60)
-                QToolTip.showText(QCursor.pos(), f"{mins}:{secs:02d}")
+            self.slider_tooltip(event)
         return super().eventFilter(source, event)
 
     def _slider_jump_to_click(self):
@@ -1282,7 +1276,8 @@ class MainWindow(QMainWindow):
         print("    file exists?   ", os.path.isfile(path))
 
         if not path.exists():
-            print("⚠️  Skipping playback because file missing")
+            print("⚠️  Skipping playback — file not found:", path)
+            QMessageBox.warning(self, "Missing File", f"The selected audio file does not exist:\n{path}")
             return
 
         # Set and play the media
@@ -1321,16 +1316,6 @@ class MainWindow(QMainWindow):
 
     def seek(self, pos):
         self.audio.setPosition(pos)
-
-    def update_position(self, p):
-        if not getattr(self, "_user_dragging", False):
-            self.slider.setValue(p)
-            self.elapsed_label.setText(self.format_time(p))
-
-    def update_duration(self, d):
-        self.slider.setRange(0, d)
-        mins, secs = divmod(d // 1000, 60)
-        self.total_label.setText(self.format_time(d))
 
     def open_settings(self):
         SettingsDialog(self).exec()
@@ -1407,11 +1392,10 @@ class MainWindow(QMainWindow):
         }
         if SETTINGS_FILE.exists():
             try:
-                with open(SETTINGS_FILE, "r") as f:
-                    settings = json.load(f)
-                    return {**defaults, **settings}
+                with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                    return {**defaults, **json.load(f)}
             except Exception as e:
-                print("Failed to load settings:", e)
+                print("[load_user_settings] Failed to load settings:", e)
         return defaults
 
     def save_user_settings(self):
@@ -1426,22 +1410,24 @@ class MainWindow(QMainWindow):
             "video_enabled": self.video_enabled,
             "autoplay": self.autoplay,
             "media_keys_enabled": self.media_keys_enabled,
+            "volume": int(self.audio_out.volume() * 100) if hasattr(self, "audio_out") else 30,
             "allow_prerelease": self.allow_prerelease,
             "was_prerelease": self.is_prerelease_version(__version__),
             "resolution": f"{self.width()}×{self.height()}",
             "skipped_versions": self.skipped_versions,
         }
         try:
-            with open(SETTINGS_FILE, "w") as f:
+            with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
                 json.dump(settings, f, indent=2)
         except Exception as e:
-            print("Failed to save settings:", e)
+            print("[save_user_settings] Failed to save settings:", e)
         
     def _on_reload_complete(self, library):
         # Called when background thread finishes parsing.
         self.library = library
         self.queue   = list(library)
         self.populate_list(self.queue)
+        print(f"[reload_complete] ✅ Found {len(library)} total songs after rescan.")
         self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
 
 
@@ -1466,11 +1452,9 @@ class MainWindow(QMainWindow):
     def closeEvent(self, ev):
         # 0) stop the scanner thread (if it's still running)
         if hasattr(self, "_scanner") and self._scanner.isRunning():
-            print("[closeEvent] Scanner thread running. Requesting interruption...")
+            print("[closeEvent] Requesting scanner thread interruption...")
             self._scanner.requestInterruption()
-            if not self._scanner.wait(5000):
-                print("[closeEvent] Scanner thread did not terminate in time during close.")
-        print("[closeEvent] Proceeding with close.")
+            self._scanner.wait(3000)  # Allow 3 seconds max to cleanly exit
 
         # 1) Unregister global hotkeys
         if user32 and self.media_keys_enabled:
