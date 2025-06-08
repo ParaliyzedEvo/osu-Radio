@@ -1,6 +1,14 @@
 name: New Feature
 description: Request a new feature for osu!Radio.
 body:
+  - type: dropdown
+    attributes:
+      label: Updater or the app itself?
+      options:
+        - Updater
+        - App
+    validations:
+      required: true
   - type: textarea
     attributes:
       label: Feature description
