@@ -1,4 +1,4 @@
-__version__ = "1.6.0"
+__version__ = "1.6.1"
 
 import sys
 import os
@@ -13,6 +13,8 @@ import tempfile
 import shutil
 import subprocess
 import tempfile
+from datetime import datetime
+from dateutil import parser as date_parser
 from packaging import version
 from pathlib import Path
 from mutagen.mp3 import MP3
@@ -185,21 +187,42 @@ def check_for_update(current_version, skipped_versions=None, manual_check=False,
     try:
         releases = requests.get(url, timeout=5).json()
         valid = []
+        current_parsed = version.parse(current_version.lstrip("v"))
+
+        # Optional: track release time of current version to filter older prereleases
+        current_release_time = None
+        for r in releases:
+            if r.get("tag_name", "").lstrip("v") == current_version:
+                current_release_time = date_parser.parse(r["created_at"])
+                break
+
         for r in releases:
             tag = r.get("tag_name", "").lstrip("v")
-            if not tag or (r.get("prerelease") and not include_prerelease):
+            if not tag:
                 continue
             if not manual_check and skipped_versions and tag in skipped_versions:
                 continue
+
+            is_prerelease = r.get("prerelease", False)
+            release_time = date_parser.parse(r["created_at"])
+
+            if is_prerelease and not include_prerelease:
+                continue
+
+            # Reject prereleases created before the current version's release
+            if is_prerelease and current_release_time and release_time <= current_release_time:
+                continue
+
             try:
                 valid.append((version.parse(tag), r))
             except Exception as e:
                 print(f"[check_for_update] Invalid version tag: {tag} — {e}")
+
         if not valid:
             return None, None
+
         latest_ver, latest_data = max(valid, key=lambda v: v[0])
-        parsed_current = version.parse(current_version.lstrip("v"))
-        if parsed_current < latest_ver:
+        if current_parsed < latest_ver:
             return str(latest_ver), latest_data.get("assets", [])
     except Exception as e:
         print(f"[check_for_update] Failed: {e}")
