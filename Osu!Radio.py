@@ -648,10 +648,16 @@ class MainWindow(QMainWindow):
         self.setMaximumSize(max_w, max_h)
 
         # Load settings
+        first_setup = not SETTINGS_FILE.exists()
         settings = self.load_user_settings()
 
         # Apply defaults if missing
-        self.osu_folder     = settings.get("osu_folder") or QFileDialog.getExistingDirectory(self, "Select osu! Songs Folder")
+        self.osu_folder          = settings.get("osu_folder")
+        if not self.osu_folder:
+            self.osu_folder = QFileDialog.getExistingDirectory(self, "Select osu! Songs Folder")
+            first_time_setup = True  # Force scan after folder selection
+            if not self.osu_folder:
+                sys.exit()
         if not self.osu_folder:
             sys.exit()
 
@@ -955,6 +961,9 @@ class MainWindow(QMainWindow):
             self.queue = list(cached)
             self.populate_list(self.queue)
             self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
+        elif first_setup:
+            print("[startup] 🛠 First setup, scanning without prompt.")
+            self.reload_songs()
         else:
             print("[startup] ⚠️ No cache found — will prompt for rescan.")
             prompt = QMessageBox.question(
@@ -1326,6 +1335,7 @@ class MainWindow(QMainWindow):
         SettingsDialog(self).exec()
 
     def reload_songs(self):
+        self._progress_user_closed = False
         print(f"[reload_songs] Scanning folder: {self.osu_folder}")
 
         # Stop previous scan if running
@@ -1350,7 +1360,7 @@ class MainWindow(QMainWindow):
         self.progress = QProgressDialog("Importing beatmaps...", None, 0, 0, self)
         self.progress.setWindowModality(Qt.ApplicationModal)
         self.progress.setWindowTitle("osu!Radio")
-        self.progress.setMinimumWidth(400)
+        self.progress.setFixedSize(420, 69)
         self.progress.setCancelButton(None)
         self.progress.setMinimumDuration(0)
 
@@ -1368,6 +1378,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.Yes | QMessageBox.No
             )
             if reply == QMessageBox.Yes:
+                self._progress_user_closed = True
                 if hasattr(self, "_scanner") and self._scanner.isRunning():
                     self._scanner.requestInterruption()
                 self.progress.cancel()
@@ -1443,11 +1454,12 @@ class MainWindow(QMainWindow):
         print(f"[reload_complete] ✅ Found {len(library)} total songs after rescan.")
 
         if hasattr(self, "progress") and self.progress:
+            self.progress.closeEvent = lambda ev: ev.accept()  # disable cancel check
             self.progress.close()
             self.progress = None
 
-        QMessageBox.information(self, "Import Complete", f"Imported {len(library)} beatmaps.")
-
+        if not getattr(self, "_progress_user_closed", False):
+            QMessageBox.information(self, "Import Complete", f"Imported {len(library)} beatmaps.")
 
     def onSongContextMenu(self, point):
         item = self.song_list.itemAt(point)
