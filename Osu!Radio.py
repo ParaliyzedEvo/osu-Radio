@@ -206,13 +206,8 @@ def check_for_update(current_version, skipped_versions=None, manual_check=False,
             is_prerelease = r.get("prerelease", False)
             release_time = date_parser.parse(r["created_at"])
 
-            if is_prerelease and not include_prerelease:
+            if skipped_versions and not manual_check and tag in skipped_versions:
                 continue
-
-            # Reject prereleases created before the current version's release
-            if is_prerelease and current_release_time and release_time <= current_release_time:
-                continue
-
             try:
                 valid.append((version.parse(tag), r))
             except Exception as e:
