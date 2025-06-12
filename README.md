@@ -4,13 +4,15 @@ Me and ThunderBirdo are now collaborating in this repo to make osu!Radio V2!
 
 **ALL PLATFORMS SUPPORTED**
 
+**THIS IS NOT THE MAIN REPO, MAIN REPO IS [HERE](https://github.com/ParaliyzedEvo/osu-Radio/tree/main)**
+
 Download [here](https://github.com/ParaliyzedEvo/osu-Radio/releases/latest)
 
 Report issues or feature ideas [here](https://github.com/ParaliyzedEvo/osu-Radio/issues)
 
 Video showing off the code: [https://www.youtube.com/watch?v=_vm78h0KDLo](https://www.youtube.com/watch?v=_vm78h0KDLo)
 
-Source Code Download: [https://drive.google.com/drive/folders/1X79i-RJW4JBnE1wXCLpm4xXNWD2VrvIm](https://drive.google.com/drive/folders/1X79i-RJW4JBnE1wXCLpm4xXNWD2VrvIm)
+Source Code Download: [https://github.com/ParaliyzedEvo/osu-Radio/tree/source](https://github.com/ParaliyzedEvo/osu-Radio/tree/source)
 
 Code Used for Creating the Background: [https://osu.ppy.sh/community/forums/topics/1008669?n=1](https://osu.ppy.sh/community/forums/topics/1008669?n=1)
 
