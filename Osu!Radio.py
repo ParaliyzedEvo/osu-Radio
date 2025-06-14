@@ -508,7 +508,20 @@ class BackgroundWidget(QWidget):
             self.update()
 
     def paintEvent(self, ev):
-        QPainter(self).drawPixmap(0, 0, self._pixmap)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)
+
+        painter.drawPixmap(0, 0, self._pixmap)
+
+        # If the QGraphicsColorizeEffect is not active, apply hue manually
+        if not self.effect.isEnabled():
+            hue_color = self.effect.color()
+            overlay = QColor.fromHsv(hue_color.hue(), 255, 255)
+            overlay.setAlphaF(self.effect.strength())
+            painter.setCompositionMode(QPainter.CompositionMode_Multiply)
+            painter.fillRect(self.rect(), overlay)
+
+        painter.end()
 
 class SettingsDialog(QDialog):
     def __init__(self, parent):
@@ -1185,11 +1198,38 @@ class MainWindow(QMainWindow):
     def _apply_video_setting(self, enabled):
         self.video_enabled = enabled
         self.bg_widget.setVisible(True)
-        if hasattr(self, "bg_player"):
-            if enabled:
-                self.bg_player.play()
-            else:
-                self.bg_player.pause()
+
+        if enabled:
+            # Restore hue effect
+            self.bg_widget.setGraphicsEffect(self.bg_widget.effect)
+            self.bg_widget.effect.setEnabled(True)
+
+            if not hasattr(self, "bg_player"):
+                video_file = Path(__file__).parent / "Background Video" / "Triangles.mov"
+                if video_file.exists():
+                    self.video_sink = QVideoSink(self)
+                    self.video_sink.videoFrameChanged.connect(self.bg_widget.setFrame)
+                    self.bg_player = QMediaPlayer(self)
+                    self.bg_player.setVideoOutput(self.video_sink)
+                    self.bg_player.setSource(QUrl.fromLocalFile(str(video_file)))
+                    self.bg_player.mediaStatusChanged.connect(self.loop_video)
+
+            self.bg_player.play()
+
+        else:
+            # Remove video and disable QGraphicsColorizeEffect
+            if hasattr(self, "bg_player"):
+                self.bg_player.stop()
+                self.bg_player.deleteLater()
+                del self.bg_player
+            if hasattr(self, "video_sink"):
+                self.video_sink.deleteLater()
+                del self.video_sink
+
+            # Remove hue effect and trigger repaint with manual hue
+            self.bg_widget.setGraphicsEffect(self.bg_widget.effect)
+            self.bg_widget.effect.setEnabled(False)
+            self.bg_widget.update()
                 
     def update_media_key_listener(self):
         try:
