@@ -189,34 +189,34 @@ def check_for_update(current_version, skipped_versions=None, manual_check=False,
         valid = []
         current_parsed = version.parse(current_version.lstrip("v"))
 
-        # Optional: track release time of current version to filter older prereleases
-        current_release_time = None
-        for r in releases:
-            if r.get("tag_name", "").lstrip("v") == current_version:
-                current_release_time = date_parser.parse(r["created_at"])
-                break
-
         for r in releases:
             tag = r.get("tag_name", "").lstrip("v")
+            created = r.get("created_at")
+            is_prerelease = r.get("prerelease", False)
+
             if not tag:
                 continue
             if not manual_check and skipped_versions and tag in skipped_versions:
                 continue
-
-            is_prerelease = r.get("prerelease", False)
-            release_time = date_parser.parse(r["created_at"])
-
-            if skipped_versions and not manual_check and tag in skipped_versions:
+            if is_prerelease and not include_prerelease:
                 continue
+            if '+' in tag and not include_prerelease:
+                continue
+
             try:
-                valid.append((version.parse(tag), r))
-            except Exception as e:
-                print(f"[check_for_update] Invalid version tag: {tag} — {e}")
+                parsed_tag = version.parse(tag)
+                created_at = date_parser.parse(created)
+                valid.append((parsed_tag, is_prerelease, '+' in tag, created_at, r))
+            except Exception:
+                continue
 
         if not valid:
             return None, None
 
-        latest_ver, latest_data = max(valid, key=lambda v: v[0])
+        # Sort by: newest date, stable > pre, no local > local, then version (tie-breaker)
+        valid.sort(key=lambda v: (v[3], not v[1], not v[2], v[0]), reverse=True)
+        latest_ver, _, _, _, latest_data = valid[0]
+
         if current_parsed < latest_ver:
             return str(latest_ver), latest_data.get("assets", [])
     except Exception as e:
