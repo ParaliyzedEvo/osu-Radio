@@ -1,4 +1,4 @@
-__version__ = "1.6.2"
+__version__ = "1.7.0"
 
 import sys
 import os
@@ -532,7 +532,7 @@ class SettingsDialog(QDialog):
 
         layout = QVBoxLayout(self)
 
-        # 🗂 Songs folder selection
+        # Songs folder selection
         self.folder_edit = QLineEdit(parent.osu_folder)
         browse_btn = QPushButton("Browse…")
         browse_btn.clicked.connect(self.browse_folder)
@@ -543,7 +543,7 @@ class SettingsDialog(QDialog):
         folder_layout.addWidget(browse_btn)
         layout.addLayout(folder_layout)
 
-        # 🌗 Toggles
+        # Toggles
         self.light_mode_checkbox = QCheckBox("Light Mode")
         self.video_checkbox = QCheckBox("Enable Background Video")
         self.autoplay_checkbox = QCheckBox("Autoplay on Startup")
@@ -562,7 +562,7 @@ class SettingsDialog(QDialog):
         ):
             layout.addWidget(checkbox)
 
-        # 🎚 Opacity slider
+        # Opacity slider
         self.opacity_slider = QSlider(Qt.Horizontal)
         self.opacity_slider.setRange(10, 100)
         self.opacity_slider.setValue(int(parent.ui_opacity * 100))
@@ -575,7 +575,7 @@ class SettingsDialog(QDialog):
         opacity_layout.addWidget(self.opacity_slider)
         layout.addLayout(opacity_layout)
 
-        # 🎨 Hue slider
+        # Hue slider
         self.hue_slider = QSlider(Qt.Horizontal)
         self.hue_slider.setRange(0, 360)
         self.hue_slider.setValue(parent.hue)
@@ -588,7 +588,7 @@ class SettingsDialog(QDialog):
         hue_layout.addWidget(self.hue_slider)
         layout.addLayout(hue_layout)
 
-        # 🖥 Resolution dropdown
+        # Resolution dropdown
         self.res_combo = QComboBox()
         self.resolutions = {
             "1920×1080": (1920, 1080),
@@ -607,12 +607,12 @@ class SettingsDialog(QDialog):
         res_layout.addWidget(self.res_combo)
         layout.addLayout(res_layout)
 
-        # 🔄 Update button
+        # Update button
         update_btn = QPushButton("Check for Updates")
         update_btn.clicked.connect(lambda: parent.check_updates(manual=True))
         layout.addWidget(update_btn)
 
-        # ✅ / ❌ Buttons
+        # Buttons
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.apply)
         buttons.rejected.connect(self.reject)
@@ -905,6 +905,27 @@ class MainWindow(QMainWindow):
 
         bot.addWidget(seek_widget, 2)
         
+        # Playback speed dropdown
+        self.speed_combo = QComboBox()
+        self.speed_combo.setEditable(True)
+        self.speed_combo.addItems(["0.5x", "0.75x", "1x", "1.25x", "1.5x", "2x"])
+        self.speed_combo.setCurrentText("1x")
+        self.speed_combo.setToolTip("Playback Speed")
+        self.speed_combo.setFixedWidth(69)
+        # Dropbox
+        self.speed_combo.activated.connect(
+            lambda index: self.change_speed(self.speed_combo.itemText(index))
+        )
+        # When user presses Enter in the line edit
+        self.speed_combo.lineEdit().returnPressed.connect(
+            lambda: self.change_speed(self.speed_combo.currentText())
+        )
+        # When user clicks away from the input box
+        self.speed_combo.lineEdit().focusOutEvent = self._wrap_focus_out(
+            self.speed_combo.lineEdit().focusOutEvent
+        )
+        bot.addWidget(self.speed_combo)
+        
         # Playback and info label
         self.loop_btn = QPushButton()
         self.loop_btn.setToolTip("Loop: Off")
@@ -1037,6 +1058,35 @@ class MainWindow(QMainWindow):
         )
         
         QTimer.singleShot(1000, lambda: self.check_updates())
+        
+    def _wrap_focus_out(self, old_handler):
+        def new_handler(event):
+            self.change_speed(self.speed_combo.currentText())
+            if old_handler:
+                old_handler(event)
+        return new_handler
+        
+    def change_speed(self, text):
+        try:
+            rate = float(text.replace("x", "").strip())
+            if rate <= 0:
+                raise ValueError("Speed must be positive.")
+                
+            self.audio.setPlaybackRate(rate)
+            print(f"[Playback Speed] Set to {rate}x")
+            default_speeds = ["0.5x", "0.75x", "1x", "1.25x", "1.5x", "2x"]
+            current_display = f"{rate}x"
+
+            self.speed_combo.blockSignals(True)
+            self.speed_combo.clear()
+            self.speed_combo.addItems(default_speeds)
+            self.speed_combo.setEditText(current_display)
+            self.speed_combo.blockSignals(False)
+
+        except ValueError:
+            QMessageBox.warning(self, "Invalid Speed", "Please enter a valid number above 0 (e.g., 1.25x).")
+            self.speed_combo.setEditText("1x")
+            self.audio.setPlaybackRate(1.0)
         
     def _update_volume_label(self, v):
         self.volume_label.setText(f"{v}%")
