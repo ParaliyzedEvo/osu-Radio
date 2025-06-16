@@ -22,7 +22,7 @@ from PySide6.QtCore import (
     Qt, QUrl, QTimer, QThread, QMetaObject,
     QPropertyAnimation, QEasingCurve, Property,
     QSequentialAnimationGroup, QPauseAnimation, Signal,
-    QEvent
+    QEvent, QIODevice, QBuffer, QByteArray
 )
 from PySide6.QtGui import (
     QIcon, QPixmap, QPainter, QColor,
@@ -38,7 +38,7 @@ from PySide6.QtWidgets import (
     QMenu, QGridLayout, QSplitter, QToolTip, QSizePolicy,
     QMessageBox, QProgressDialog
 )
-from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QVideoSink
+from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QVideoSink, QAudioSink, QAudioFormat, QMediaDevices
 
 # Paths
 IS_WINDOWS = os.name == "nt"
@@ -152,6 +152,63 @@ def read_osu_lines(path: str) -> list:
             continue
     with open(path, encoding="utf-8", errors="ignore") as f:
         return f.read().splitlines()
+        
+class PitchAdjustedPlayer:
+    def __init__(self, audio_output: QAudioSink):
+        self.audio_output = audio_output
+        self.buffer = None
+        self.device = None
+        self.current_temp = None
+
+    def stop(self):
+        if self.audio_output:
+            self.audio_output.stop()
+        if self.device:
+            self.device.close()
+        if self.current_temp and os.path.exists(self.current_temp):
+            os.remove(self.current_temp)
+
+    def play(self, input_path: str, speed: float = 1.0, preserve_pitch: bool = True):
+        self.stop()
+
+        if preserve_pitch and speed != 1.0:
+            temp_path = self._process_audio_with_ffmpeg(input_path, speed)
+        else:
+            temp_path = input_path
+
+        with open(temp_path, 'rb') as f:
+            data = f.read()
+        if preserve_pitch and speed != 1.0:
+            self.current_temp = temp_path
+
+        format = QAudioFormat()
+        format.setSampleRate(44100)
+        format.setChannelCount(2)
+        format.setSampleFormat(QAudioFormat.Int16)
+
+        self.buffer = QBuffer(QByteArray(data))
+        self.buffer.open(QIODevice.ReadOnly)
+
+        self.audio_output.setFormat(format)
+        self.device = self.audio_output.start()
+        self.device.write(self.buffer.readAll())
+
+    def _process_audio_with_ffmpeg(self, input_path: str, speed: float) -> str:
+        tempo = 1.0 / speed
+        filter_str = f"asetrate=44100*{speed},atempo={tempo},aresample=44100"
+
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+        output_path = temp_file.name
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", input_path,
+            "-filter:a", filter_str,
+            output_path
+        ]
+
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return output_path
         
 class OsuParser:
     @staticmethod
@@ -548,17 +605,19 @@ class SettingsDialog(QDialog):
         self.video_checkbox = QCheckBox("Enable Background Video")
         self.autoplay_checkbox = QCheckBox("Autoplay on Startup")
         self.media_key_checkbox = QCheckBox("Enable Media Key Support")
+        self.pitch_checkbox = QCheckBox("Preserve Original Pitch")
         self.prerelease_checkbox = QCheckBox("Include Pre-release Updates")
 
         self.light_mode_checkbox.setChecked(parent.light_mode)
         self.video_checkbox.setChecked(parent.video_enabled)
         self.autoplay_checkbox.setChecked(parent.autoplay)
         self.media_key_checkbox.setChecked(parent.media_keys_enabled)
+        self.pitch_checkbox.setChecked(parent.preserve_pitch)
         self.prerelease_checkbox.setChecked(parent.allow_prerelease)
 
         for checkbox in (
             self.light_mode_checkbox, self.video_checkbox, self.autoplay_checkbox,
-            self.media_key_checkbox, self.prerelease_checkbox
+            self.media_key_checkbox, self.pitch_checkbox, self.prerelease_checkbox
         ):
             layout.addWidget(checkbox)
 
@@ -637,12 +696,13 @@ class SettingsDialog(QDialog):
         video_on = self.video_checkbox.isChecked()
         autoplay = self.autoplay_checkbox.isChecked()
         media_keys = self.media_key_checkbox.isChecked()
+        preserve_pitch = self.pitch_checkbox.isChecked()
         allow_prerelease = self.prerelease_checkbox.isChecked()
 
         was_prerelease = self.main.allow_prerelease
         self.main.apply_settings(
             folder, light, opacity, w, h, hue,
-            video_on, autoplay, media_keys, allow_prerelease
+            video_on, autoplay, media_keys, preserve_pitch, allow_prerelease
         )
 
         if was_prerelease != allow_prerelease:
@@ -700,6 +760,7 @@ class MainWindow(QMainWindow):
         self.autoplay           = settings.get("autoplay", False)
         self.media_keys_enabled = settings.get("media_keys_enabled", True)
         self.vol                = settings.get("volume", 30)
+        self.preserve_pitch     = settings.get("preserve_pitch", True)
         self.allow_prerelease   = settings.get("allow_prerelease", False)
         self.was_prerelease     = settings.get("was_prerelease", False)
         self.skipped_versions   = settings.get("skipped_versions", [])
@@ -991,10 +1052,6 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence(Qt.Key_MediaPrevious), self, self.prev_song)
         QShortcut(QKeySequence(Qt.Key_MediaPlay),     self, self.play_song)
         QShortcut(QKeySequence(Qt.Key_MediaPause),    self, self.pause_song)
-
-        # connect slider range updates
-        self.audio.positionChanged.connect(self.update_position)
-        self.audio.durationChanged.connect(self.update_duration)
         
         # register global media-key hotkeys
         # arguments: hWnd (0 for all windows), id, fsModifiers, vk
@@ -1072,7 +1129,8 @@ class MainWindow(QMainWindow):
             if rate <= 0:
                 raise ValueError("Speed must be positive.")
                 
-            self.audio.setPlaybackRate(rate)
+            if hasattr(self, "current_index"):
+                self.play_song_at_index(self.current_index)
             print(f"[Playback Speed] Set to {rate}x")
             default_speeds = ["0.5x", "0.75x", "1x", "1.25x", "1.5x", "2x"]
             current_display = f"{rate}x"
@@ -1146,19 +1204,24 @@ class MainWindow(QMainWindow):
         parsed = version.parse(ver)
         return parsed.is_prerelease or '+' in ver
             
+    from PySide6.QtMultimedia import QMediaDevices, QAudioSink, QAudioFormat
+
     def setup_media_players(self):
-        # Initialize QMediaPlayer and QAudioOutput.
-        self.audio = QMediaPlayer(self)
-        self.audio_out = QAudioOutput(self)
-        self.audio.setAudioOutput(self.audio_out)
+        # Get default output device
+        output_device = QMediaDevices.defaultAudioOutput()
 
-        self.audio.playbackStateChanged.connect(self.update_play_pause_icon)
-        self.audio.mediaStatusChanged.connect(self._on_audio_status)
-        self.audio.errorOccurred.connect(
-            lambda err, msg: print(f"🎶 QMediaPlayer error: {err}, message: {msg}")
-        )
+        # Set up explicit audio format
+        audio_format = QAudioFormat()
+        audio_format.setSampleRate(44100)
+        audio_format.setChannelCount(2)
+        audio_format.setSampleFormat(QAudioFormat.Int16)
 
-        self.audio_out.setVolume(0.3)
+        # Initialize QAudioSink with format and parent
+        self.audio_out = QAudioSink(output_device, audio_format, self)
+        self.audio_out.setVolume(self.vol / 100)
+
+        # Initialize custom player that uses QAudioSink
+        self.pitch_player = PitchAdjustedPlayer(self.audio_out)
         
     def connect_slider_signals(self):
         # Link slider drag behavior and update preview time.
@@ -1215,7 +1278,7 @@ class MainWindow(QMainWindow):
             self.bg_player.setPosition(0)
             self.bg_player.play()
 
-    def apply_settings(self, folder, light, opacity, w, h, hue, video_on, autoplay, media_keys, allow_prerelease):
+    def apply_settings(self, folder, light, opacity, w, h, hue, video_on, autoplay, media_keys, preserve_pitch, allow_prerelease):
         if folder != self.osu_folder and os.path.isdir(folder):
             self.osu_folder = folder
             self.reload_songs()
@@ -1230,7 +1293,8 @@ class MainWindow(QMainWindow):
         self.autoplay = autoplay
         if self.media_keys_enabled != media_keys:
             self.media_keys_enabled = media_keys
-            self.update_media_key_listener()    
+            self.update_media_key_listener()
+        self.preserve_pitch = preserve_pitch
         self.allow_prerelease = allow_prerelease
         self.setFixedSize(w, h)
         self.save_user_settings()
@@ -1342,7 +1406,7 @@ class MainWindow(QMainWindow):
         self.update_loop_icon()
         
     def update_play_pause_icon(self):
-        if self.audio.playbackState() == QMediaPlayer.PlayingState:
+        if getattr(self, "is_playing", False):
             self.btn_play_pause.setIcon(self.style().standardIcon(QStyle.SP_MediaPause))
         else:
             self.btn_play_pause.setIcon(self.style().standardIcon(QStyle.SP_MediaPlay))
@@ -1371,16 +1435,18 @@ class MainWindow(QMainWindow):
         self.now_lbl.setText(f"{song['artist']} - {song['title']}")
 
     def toggle_play(self):
-        # Play if paused/stopped, pause if playing, and update icon.
-        state = self.audio.playbackState()
-        if state == QMediaPlayer.PlayingState:
-            self.audio.pause()
+        if getattr(self, "is_playing", False):
+            self.pitch_player.stop()
+            self.is_playing = False
         else:
-            self.audio.play()
+            self.play_song_at_index(self.current_index)
+            self.is_playing = True
         self.update_play_pause_icon()
    
     def pause_song(self):
-        self.audio.pause()
+        self.pitch_player.stop()
+        self.is_playing = False
+        self.update_play_pause_icon()
 
     def play_song_at_index(self, index):
         self.current_index = index
@@ -1403,8 +1469,8 @@ class MainWindow(QMainWindow):
             return
 
         # Set and play the media
-        self.audio.setSource(QUrl.fromLocalFile(str(path)))
-        self.audio.play()
+        speed = float(self.speed_combo.currentText().replace("x", ""))
+        self.pitch_player.play(str(path), speed=speed, preserve_pitch=self.preserve_pitch)
 
         # Update UI
         self.now_lbl.setText(f"{song.get('title','')} — {song.get('artist','')}")
@@ -1423,11 +1489,7 @@ class MainWindow(QMainWindow):
             self.play_song_at_index(nxt)
 
     def prev_song(self):
-        # if more than 3 s in, restart; else go to previous track
-        if self.audio.position() < 3000:
-            idx = (self.current_index - 1) % len(self.queue)
-        else:
-            idx = self.current_index
+        idx = (self.current_index - 1) % len(self.queue)
         self.play_song_at_index(idx)
 
     def shuffle(self):
@@ -1437,7 +1499,9 @@ class MainWindow(QMainWindow):
         self.song_list.setCurrentRow(self.current_index)
 
     def seek(self, pos):
-        self.audio.setPosition(pos)
+        # Seeking is not yet implemented with QAudioSink + buffer
+        print(f"[Seek] Jump to position {pos} ms — not supported yet.")
+        # Optional: Stop + replay from new position (future improvement)
 
     def open_settings(self):
         SettingsDialog(self).exec()
@@ -1516,6 +1580,7 @@ class MainWindow(QMainWindow):
             "video_enabled": True,
             "autoplay": False,
             "media_keys_enabled": True,
+            "preserve_pitch": True,
             "allow_prerelease": False,
             "was_prerelease": False,
             "resolution": "854×480",
@@ -1542,6 +1607,7 @@ class MainWindow(QMainWindow):
             "autoplay": self.autoplay,
             "media_keys_enabled": self.media_keys_enabled,
             "volume": int(self.audio_out.volume() * 100) if hasattr(self, "audio_out") else 30,
+            "preserve_pitch": self.preserve_pitch,
             "allow_prerelease": self.allow_prerelease,
             "was_prerelease": self.is_prerelease_version(__version__),
             "resolution": f"{self.width()}×{self.height()}",
@@ -1609,6 +1675,9 @@ class MainWindow(QMainWindow):
         super().closeEvent(ev)
         
         self.save_user_settings()
+        
+        if hasattr(self, "pitch_player"):
+            self.pitch_player.stop()
         
     def _on_audio_status(self, status):
         # QMediaPlayer.EndOfMedia fires once when a track finishes
