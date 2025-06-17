@@ -13,6 +13,8 @@ import tempfile
 import shutil
 import subprocess
 import tempfile
+import ffmpeg
+import platform
 from datetime import datetime
 from dateutil import parser as date_parser
 from packaging import version
@@ -155,6 +157,23 @@ def read_osu_lines(path: str) -> list:
         return f.read().splitlines()
         
 class PitchAdjustedPlayer:
+    def __init__(self, audio_output: QAudioSink, audio_format: QAudioFormat):
+        self.audio_output = audio_output
+        self.audio_format = audio_format
+        self.buffer = None
+        self.device = None
+        self.current_temp = None
+        
+    def _ffmpeg_sample_fmt(self):
+        fmt = self.audio_format.sampleFormat()
+        if fmt == QAudioFormat.Int16:
+            return 's16'
+        elif fmt == QAudioFormat.Float:
+            return 'f32le'
+        else:
+            print(f"[FFmpeg] Unsupported sample format for output device: {fmt}")
+            return 's16'
+
     def __init__(self, audio_output: QAudioSink):
         self.audio_output = audio_output
         self.buffer = None
@@ -176,9 +195,15 @@ class PitchAdjustedPlayer:
             temp_path = self._process_audio_with_ffmpeg(input_path, speed, start_ms)
         else:
             temp_path = self._trim_audio_with_ffmpeg(input_path, start_ms) if start_ms > 0 else input_path
+            
+        if not os.path.exists(temp_path) or os.path.getsize(temp_path) < 1024:
+            print(f"[FFmpeg] Output file {temp_path} is missing or too small")
+            return
 
         with open(temp_path, 'rb') as f:
             data = f.read()
+        if not data:
+            print("[PitchAdjustedPlayer] Warning: Temp audio file is empty.")
         if (preserve_pitch and speed != 1.0) or start_ms > 0:
             self.current_temp = temp_path
 
@@ -186,9 +211,18 @@ class PitchAdjustedPlayer:
         if not self.buffer.open(QIODevice.ReadOnly):
             print("[PitchAdjustedPlayer] Failed to open buffer for reading")
             return
+            
+        print(f"[Debug] Buffer opened, size={self.buffer.size()} bytes")
 
         self.device = self.audio_output.start()
-        if not self.device or not self.device.isWritable():
+
+        if not self.device:
+            print("[PitchAdjustedPlayer] Failed to start audio output (device is None)")
+            return
+        if not self.device.isOpen():
+            print("[PitchAdjustedPlayer] Audio output device is not open")
+            return
+        if not self.device.isWritable():
             print("[PitchAdjustedPlayer] Audio output device is not writable")
             return
 
@@ -199,34 +233,50 @@ class PitchAdjustedPlayer:
     def _process_audio_with_ffmpeg(self, input_path: str, speed: float, start_ms: int = 0) -> str:
         tempo = 1.0 / speed
         filter_str = f"asetrate=44100*{speed},atempo={tempo},aresample=44100"
+        sample_fmt = self._ffmpeg_sample_fmt()
 
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
         output_path = temp_file.name
+        
+        if start_ms < 0:
+            start_ms = 0
 
-        cmd = [
-            "ffmpeg", "-y",
-            "-ss", str(start_ms / 1000),
-            "-i", input_path,
-            "-filter:a", filter_str,
-            output_path
-        ]
+        try:
+            (
+                ffmpeg
+                .input(input_path, ss=start_ms / 1000)
+                .filter_('aformat', sample_rates='44100', channel_layouts='stereo', sample_fmts='s16')
+                .filter_('aresample', resampler='soxr')
+                .filter_('asetrate', 44100 * speed)
+                .filter_('atempo', tempo)
+                .output(output_path, ar=44100, ac=2, sample_fmt=sample_fmt, format='wav')
+                .run(capture_stdout=True, capture_stderr=True, overwrite_output=True)
+            )
+        except ffmpeg.Error as e:
+            print("[FFmpeg Error]", e.stderr.decode(errors="ignore"))
+            raise
 
-        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return output_path
         
     def _trim_audio_with_ffmpeg(self, input_path: str, start_ms: int) -> str:
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
         output_path = temp_file.name
+        sample_fmt = self._ffmpeg_sample_fmt()
+        
+        if start_ms < 0:
+            start_ms = 0
 
-        cmd = [
-            "ffmpeg", "-y",
-            "-ss", str(start_ms / 1000),
-            "-i", input_path,
-            "-c:a", "pcm_s16le",  # raw WAV
-            output_path
-        ]
+        try:
+            (
+                ffmpeg
+                .input(input_path, ss=start_ms / 1000)
+                .output(output_path, ar=44100, ac=2, sample_fmt=sample_fmt, format='wav')
+                .run(capture_stdout=True, capture_stderr=True, overwrite_output=True)
+            )
+        except ffmpeg.Error as e:
+            print("[FFmpeg Error]", e.stderr.decode(errors="ignore"))
+            raise
 
-        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return output_path
         
 class OsuParser:
@@ -833,7 +883,24 @@ class MainWindow(QMainWindow):
                 self.skip_downgrade_for_now = True
 
         # Audio player
+        def get_embedded_ffmpeg_path():
+            base = os.path.abspath(os.path.join(os.path.dirname(__file__), "ffmpeg_bin"))
+            system = platform.system()
+
+            if system == "Windows":
+                return os.path.join(base, "ffmpeg", "windows", "bin", "ffmpeg.exe")
+            elif system == "Darwin":  # macOS
+                return os.path.join(base, "ffmpeg", "macos", "ffmpeg")
+            elif system == "Linux":
+                return os.path.join(base, "ffmpeg", "linux", "bin", "ffmpeg")
+            else:
+                raise RuntimeError(f"Unsupported platform: {system}")
         self.setup_media_players()
+        ffmpeg_path = get_embedded_ffmpeg_path()
+        ffmpeg._ffmpeg_path = ffmpeg_path
+        ffmpeg._probe = os.path.join(os.path.dirname(ffmpeg_path), "ffprobe" + (".exe" if platform.system() == "Windows" else ""))
+        if platform.system() != "Windows":
+            os.chmod(ffmpeg_path, 0o755)
 
         # Central + stacking
         central = QWidget(self)
@@ -897,7 +964,6 @@ class MainWindow(QMainWindow):
         vol = QSlider(Qt.Horizontal)
         vol.setRange(0, 100)
         vol.setValue(self.vol)
-        self.audio_out.setVolume(self.vol / 100)
         self.volume_label = QLabel(f"{self.vol}%")
         self.volume_label.setVisible(True)
         vol.valueChanged.connect(self.set_volume)
@@ -1241,21 +1307,27 @@ class MainWindow(QMainWindow):
     from PySide6.QtMultimedia import QMediaDevices, QAudioSink, QAudioFormat
 
     def setup_media_players(self):
-        # Get default output device
         output_device = QMediaDevices.defaultAudioOutput()
 
-        # Set up explicit audio format
         audio_format = QAudioFormat()
         audio_format.setSampleRate(44100)
         audio_format.setChannelCount(2)
         audio_format.setSampleFormat(QAudioFormat.Int16)
 
-        # Initialize QAudioSink with format and parent
+        if not output_device.isFormatSupported(audio_format):
+            print("❌ 16-bit PCM not supported, falling back to preferred format.")
+            audio_format = output_device.preferredFormat()
+
+        print("[Audio Format] Using format:")
+        print(f"  Sample Rate: {audio_format.sampleRate()}")
+        print(f"  Channels:    {audio_format.channelCount()}")
+        print(f"  Sample Type: {audio_format.sampleFormat()}")
+
+        # Create QAudioSink and set volume here (not in __init__)
         self.audio_out = QAudioSink(output_device, audio_format, self)
         self.audio_out.setVolume(self.vol / 100)
 
-        # Initialize custom player that uses QAudioSink
-        self.pitch_player = PitchAdjustedPlayer(self.audio_out)
+        self.pitch_player = PitchAdjustedPlayer(self.audio_out, audio_format)
         
     def connect_slider_signals(self):
         # Link slider drag behavior and update preview time.
@@ -1547,6 +1619,7 @@ class MainWindow(QMainWindow):
         speed = float(self.speed_combo.currentText().replace("x", ""))
         
         self._playback_start_time = monotonic() - (pos / 1000)
+        print(f"[Seek Debug] path: {path}, speed: {speed}, preserve_pitch: {self.preserve_pitch}, start: {pos}")
         self.pitch_player.play(str(path), speed=speed, preserve_pitch=self.preserve_pitch, start_ms=pos)
 
     def open_settings(self):
