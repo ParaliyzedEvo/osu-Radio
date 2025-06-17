@@ -18,6 +18,7 @@ from dateutil import parser as date_parser
 from packaging import version
 from pathlib import Path
 from mutagen.mp3 import MP3
+from time import monotonic
 from PySide6.QtCore import (
     Qt, QUrl, QTimer, QThread, QMetaObject,
     QPropertyAnimation, QEasingCurve, Property,
@@ -168,32 +169,34 @@ class PitchAdjustedPlayer:
         if self.current_temp and os.path.exists(self.current_temp):
             os.remove(self.current_temp)
 
-    def play(self, input_path: str, speed: float = 1.0, preserve_pitch: bool = True):
+    def play(self, input_path: str, speed: float = 1.0, preserve_pitch: bool = True, start_ms: int = 0):
         self.stop()
 
         if preserve_pitch and speed != 1.0:
-            temp_path = self._process_audio_with_ffmpeg(input_path, speed)
+            temp_path = self._process_audio_with_ffmpeg(input_path, speed, start_ms)
         else:
-            temp_path = input_path
+            temp_path = self._trim_audio_with_ffmpeg(input_path, start_ms) if start_ms > 0 else input_path
 
         with open(temp_path, 'rb') as f:
             data = f.read()
-        if preserve_pitch and speed != 1.0:
+        if (preserve_pitch and speed != 1.0) or start_ms > 0:
             self.current_temp = temp_path
 
-        format = QAudioFormat()
-        format.setSampleRate(44100)
-        format.setChannelCount(2)
-        format.setSampleFormat(QAudioFormat.Int16)
-
         self.buffer = QBuffer(QByteArray(data))
-        self.buffer.open(QIODevice.ReadOnly)
+        if not self.buffer.open(QIODevice.ReadOnly):
+            print("[PitchAdjustedPlayer] Failed to open buffer for reading")
+            return
 
-        self.audio_output.setFormat(format)
         self.device = self.audio_output.start()
-        self.device.write(self.buffer.readAll())
+        if not self.device or not self.device.isWritable():
+            print("[PitchAdjustedPlayer] Audio output device is not writable")
+            return
 
-    def _process_audio_with_ffmpeg(self, input_path: str, speed: float) -> str:
+        written = self.device.write(self.buffer.readAll())
+        if written == -1:
+            print("[PitchAdjustedPlayer] Failed to write audio data to device")
+
+    def _process_audio_with_ffmpeg(self, input_path: str, speed: float, start_ms: int = 0) -> str:
         tempo = 1.0 / speed
         filter_str = f"asetrate=44100*{speed},atempo={tempo},aresample=44100"
 
@@ -202,8 +205,24 @@ class PitchAdjustedPlayer:
 
         cmd = [
             "ffmpeg", "-y",
+            "-ss", str(start_ms / 1000),
             "-i", input_path,
             "-filter:a", filter_str,
+            output_path
+        ]
+
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return output_path
+        
+    def _trim_audio_with_ffmpeg(self, input_path: str, start_ms: int) -> str:
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+        output_path = temp_file.name
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", str(start_ms / 1000),
+            "-i", input_path,
+            "-c:a", "pcm_s16le",  # raw WAV
             output_path
         ]
 
@@ -921,12 +940,16 @@ class MainWindow(QMainWindow):
         self.slider.setMouseTracking(True)
         self.slider.installEventFilter(self)
         self.slider.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.playback_timer = QTimer(self)
+        self.playback_timer.setInterval(1000)
+        self.playback_timer.timeout.connect(self._tick_seekbar)
+        self._playback_start_time = None
 
         # Drag tracking logic
         self.slider.sliderPressed.connect(lambda: setattr(self, "_user_dragging", True))
         self.slider.sliderReleased.connect(lambda: (
             setattr(self, "_user_dragging", False),
-            self.audio.setPosition(self.slider.value())
+            self.seek(self.slider.value())
         ))
 
         self.slider.valueChanged.connect(lambda v: (
@@ -1111,10 +1134,21 @@ class MainWindow(QMainWindow):
         self.apply_settings(
             self.osu_folder, self.light_mode, self.ui_opacity,
             w, h, self.hue, self.video_enabled, self.autoplay,
-            self.media_keys_enabled, self.allow_prerelease
+            self.media_keys_enabled, self.preserve_pitch, self.allow_prerelease
         )
         
         QTimer.singleShot(1000, lambda: self.check_updates())
+        
+    def _tick_seekbar(self):
+        if self._playback_start_time is None:
+            return
+        elapsed_ms = int((monotonic() - self._playback_start_time) * 1000)
+        if not getattr(self, "_user_dragging", False):
+            self.slider.setValue(elapsed_ms)
+            self.elapsed_label.setText(self.format_time(elapsed_ms))
+        if elapsed_ms >= self.current_duration:
+            self.playback_timer.stop()
+            self.next_song()
         
     def _wrap_focus_out(self, old_handler):
         def new_handler(event):
@@ -1228,7 +1262,7 @@ class MainWindow(QMainWindow):
         self.slider.sliderPressed.connect(lambda: setattr(self, "_user_dragging", True))
         self.slider.sliderReleased.connect(lambda: (
             setattr(self, "_user_dragging", False),
-            self.audio.setPosition(self.slider.value())
+            self.seek(self.slider.value())
         ))
 
         self.slider.valueChanged.connect(lambda v: (
@@ -1246,10 +1280,10 @@ class MainWindow(QMainWindow):
         self.total_label.setText(self.format_time(duration))
         
     def slider_tooltip(self, event):
-        if self.audio.duration() > 0:
+        if hasattr(self, "current_duration") and self.current_duration > 0:
             x = event.position().x() if hasattr(event, "position") else event.x()
             ratio = x / self.slider.width()
-            pos = int(ratio * self.audio.duration())
+            pos = int(ratio * self.current_duration)
             mins, secs = divmod(pos // 1000, 60)
             QToolTip.showText(QCursor.pos(), f"{mins}:{secs:02d}")
 
@@ -1267,7 +1301,7 @@ class MainWindow(QMainWindow):
         mouse_pos = self.slider.mapFromGlobal(QCursor.pos()).x()
         ratio = mouse_pos / self.slider.width()
         new_pos = int(ratio * self.audio.duration())
-        self.audio.setPosition(new_pos)
+        self.seek(new_pos)
 
     def _on_playback_state(self, state):
         if state == QMediaPlayer.EndOfMedia:
@@ -1437,6 +1471,7 @@ class MainWindow(QMainWindow):
     def toggle_play(self):
         if getattr(self, "is_playing", False):
             self.pitch_player.stop()
+            self.playback_timer.stop()
             self.is_playing = False
         else:
             self.play_song_at_index(self.current_index)
@@ -1456,6 +1491,11 @@ class MainWindow(QMainWindow):
         if item:
             song = item.data(Qt.UserRole)
 
+        self.current_duration = song.get("length", 0)
+        self._playback_start_time = monotonic()
+        self.slider.setRange(0, self.current_duration)
+        self.total_label.setText(self.format_time(self.current_duration))
+        self.playback_timer.start()
         path = get_audio_path(song)
 
         # Debug logging
@@ -1499,9 +1539,15 @@ class MainWindow(QMainWindow):
         self.song_list.setCurrentRow(self.current_index)
 
     def seek(self, pos):
-        # Seeking is not yet implemented with QAudioSink + buffer
-        print(f"[Seek] Jump to position {pos} ms — not supported yet.")
-        # Optional: Stop + replay from new position (future improvement)
+        print(f"[Seek] Jump to position {pos} ms")
+
+        # Re-play from the new position
+        song = self.queue[self.current_index]
+        path = get_audio_path(song)
+        speed = float(self.speed_combo.currentText().replace("x", ""))
+        
+        self._playback_start_time = monotonic() - (pos / 1000)
+        self.pitch_player.play(str(path), speed=speed, preserve_pitch=self.preserve_pitch, start_ms=pos)
 
     def open_settings(self):
         SettingsDialog(self).exec()
@@ -1678,6 +1724,7 @@ class MainWindow(QMainWindow):
         
         if hasattr(self, "pitch_player"):
             self.pitch_player.stop()
+            self.playback_timer.stop()
         
     def _on_audio_status(self, status):
         # QMediaPlayer.EndOfMedia fires once when a track finishes
