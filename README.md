@@ -4,6 +4,8 @@ Me and ThunderBirdo are now collaborating in this repo to make osu!Radio V2!
 
 **ALL PLATFORMS SUPPORTED**
 
+**[ROADMAP](https://github.com/ParaliyzedEvo/osu-Radio/wiki)**
+
 Download [here](https://github.com/ParaliyzedEvo/osu-Radio/releases/latest)
 
 Report issues or feature ideas [here](https://github.com/ParaliyzedEvo/osu-Radio/issues)
