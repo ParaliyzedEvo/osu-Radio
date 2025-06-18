@@ -41,7 +41,7 @@ from PySide6.QtWidgets import (
     QMenu, QGridLayout, QSplitter, QToolTip, QSizePolicy,
     QMessageBox, QProgressDialog
 )
-from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QVideoSink, QAudioSink, QAudioFormat, QMediaDevices
+from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QVideoSink, QAudioSink, QAudioFormat, QMediaDevices, QAudio
 
 # Paths
 IS_WINDOWS = os.name == "nt"
@@ -163,22 +163,6 @@ class PitchAdjustedPlayer:
         self.buffer = None
         self.device = None
         self.current_temp = None
-        
-    def _ffmpeg_sample_fmt(self):
-        fmt = self.audio_format.sampleFormat()
-        if fmt == QAudioFormat.Int16:
-            return 's16'
-        elif fmt == QAudioFormat.Float:
-            return 'f32le'
-        else:
-            print(f"[FFmpeg] Unsupported sample format for output device: {fmt}")
-            return 's16'
-
-    def __init__(self, audio_output: QAudioSink):
-        self.audio_output = audio_output
-        self.buffer = None
-        self.device = None
-        self.current_temp = None
 
     def stop(self):
         if self.audio_output:
@@ -195,7 +179,7 @@ class PitchAdjustedPlayer:
             temp_path = self._process_audio_with_ffmpeg(input_path, speed, start_ms)
         else:
             temp_path = self._trim_audio_with_ffmpeg(input_path, start_ms) if start_ms > 0 else input_path
-            
+
         if not os.path.exists(temp_path) or os.path.getsize(temp_path) < 1024:
             print(f"[FFmpeg] Output file {temp_path} is missing or too small")
             return
@@ -204,39 +188,49 @@ class PitchAdjustedPlayer:
             data = f.read()
         if not data:
             print("[PitchAdjustedPlayer] Warning: Temp audio file is empty.")
+            return
+
         if (preserve_pitch and speed != 1.0) or start_ms > 0:
             self.current_temp = temp_path
 
-        self.buffer = QBuffer(QByteArray(data))
+        # Load data into QBuffer
+        self.buffer = QBuffer()
+        self.buffer.setData(QByteArray(data))
+
         if not self.buffer.open(QIODevice.ReadOnly):
             print("[PitchAdjustedPlayer] Failed to open buffer for reading")
             return
-            
-        print(f"[Debug] Buffer opened, size={self.buffer.size()} bytes")
 
-        self.device = self.audio_output.start()
+        print(f"[Debug] Buffer opened, size={self.buffer.size()} bytes")
+        
+        print("[PitchAdjustedPlayer] Trying to start audio with:")
+        print(f"  Format: {self.audio_format.sampleFormat()}")
+        print(f"  Rate:   {self.audio_format.sampleRate()}")
+        print(f"  Size:   {self.buffer.size()} bytes")
+
+        # Reset sink if needed
+        if self.audio_output.state() != QAudio.StoppedState:
+            self.audio_output.stop()
+
+        self.device = self.audio_output.start(self.buffer)
 
         if not self.device:
-            print("[PitchAdjustedPlayer] Failed to start audio output (device is None)")
-            return
-        if not self.device.isOpen():
-            print("[PitchAdjustedPlayer] Audio output device is not open")
-            return
-        if not self.device.isWritable():
-            print("[PitchAdjustedPlayer] Audio output device is not writable")
+            print("[PitchAdjustedPlayer] ❌ Failed to start audio output — device is None")
             return
 
-        written = self.device.write(self.buffer.readAll())
-        if written == -1:
-            print("[PitchAdjustedPlayer] Failed to write audio data to device")
+        if not self.device.isOpen():
+            print("[PitchAdjustedPlayer] ❌ Audio output device is not open")
+            return
+
+        print("[PitchAdjustedPlayer] ✅ Audio playback started")
 
     def _process_audio_with_ffmpeg(self, input_path: str, speed: float, start_ms: int = 0) -> str:
         tempo = 1.0 / speed
         filter_str = f"asetrate=44100*{speed},atempo={tempo},aresample=44100"
-        sample_fmt = self._ffmpeg_sample_fmt()
 
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
         output_path = temp_file.name
+        codec = 'pcm_s16le' if self.audio_format.sampleFormat() == QAudioFormat.Int16 else 'pcm_f32le'
         
         if start_ms < 0:
             start_ms = 0
@@ -249,7 +243,7 @@ class PitchAdjustedPlayer:
                 .filter_('aresample', resampler='soxr')
                 .filter_('asetrate', 44100 * speed)
                 .filter_('atempo', tempo)
-                .output(output_path, ar=44100, ac=2, sample_fmt=sample_fmt, format='wav')
+                .output(output_path, ar=44100, ac=2, acodec=codec, format='wav')
                 .run(capture_stdout=True, capture_stderr=True, overwrite_output=True)
             )
         except ffmpeg.Error as e:
@@ -261,7 +255,7 @@ class PitchAdjustedPlayer:
     def _trim_audio_with_ffmpeg(self, input_path: str, start_ms: int) -> str:
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
         output_path = temp_file.name
-        sample_fmt = self._ffmpeg_sample_fmt()
+        codec = 'pcm_s16le' if self.audio_format.sampleFormat() == QAudioFormat.Int16 else 'pcm_f32le'
         
         if start_ms < 0:
             start_ms = 0
@@ -270,7 +264,7 @@ class PitchAdjustedPlayer:
             (
                 ffmpeg
                 .input(input_path, ss=start_ms / 1000)
-                .output(output_path, ar=44100, ac=2, sample_fmt=sample_fmt, format='wav')
+                .output(output_path, ar=44100, ac=2, acodec=codec, format='wav')
                 .run(capture_stdout=True, capture_stderr=True, overwrite_output=True)
             )
         except ffmpeg.Error as e:
@@ -1303,8 +1297,6 @@ class MainWindow(QMainWindow):
     def is_prerelease_version(self, ver):
         parsed = version.parse(ver)
         return parsed.is_prerelease or '+' in ver
-            
-    from PySide6.QtMultimedia import QMediaDevices, QAudioSink, QAudioFormat
 
     def setup_media_players(self):
         output_device = QMediaDevices.defaultAudioOutput()
@@ -1315,7 +1307,7 @@ class MainWindow(QMainWindow):
         audio_format.setSampleFormat(QAudioFormat.Int16)
 
         if not output_device.isFormatSupported(audio_format):
-            print("❌ 16-bit PCM not supported, falling back to preferred format.")
+            print("❌ 44100Hz Int16 not supported — falling back to preferred format.")
             audio_format = output_device.preferredFormat()
 
         print("[Audio Format] Using format:")
