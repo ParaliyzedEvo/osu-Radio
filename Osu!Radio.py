@@ -189,6 +189,8 @@ class PitchAdjustedPlayer:
 
         # Only use FFmpeg if speed is changed and pitch needs to be preserved
         use_ffmpeg = True
+        
+        print(f"[Debug] Speed: {speed}, Pitch: {preserve_pitch}, Seek: {start_ms}")
 
         if use_ffmpeg:
             temp_path = self._process_audio_with_ffmpeg(input_path, speed, start_ms)
@@ -225,7 +227,9 @@ class PitchAdjustedPlayer:
             print("[PitchAdjustedPlayer] Failed to open buffer for reading")
             return
 
-        print(f"[Debug] Buffer opened, size={self.buffer.size()} bytes")
+        print(f"[Debug] Buffer opened: size={self.buffer.size()} bytes")
+        print(f"[Debug] Buffer is readable? {self.buffer.isReadable()}")
+        print(f"[Debug] Buffer is open? {self.buffer.isOpen()}")
         
         print("[PitchAdjustedPlayer] Trying to start audio with:")
         print(f"  Format: {self.audio_format.sampleFormat()}")
@@ -235,14 +239,28 @@ class PitchAdjustedPlayer:
         # Reset sink if needed
         if self.audio_output.state() != QAudio.StoppedState:
             self.audio_output.stop()
+            
+        print("[PitchAdjustedPlayer] Trying to start audio with:")
+        print(f"  Format: {self.audio_format.sampleFormat()}")
+        print(f"  Sample Rate: {self.audio_format.sampleRate()}")
+        print(f"  Channels: {self.audio_format.channelCount()}")
+        print(f"  Buffer Size: {self.buffer.size()} bytes")
 
         self.device = self.audio_output.start(self.buffer)
 
         if not self.device:
+            print("❌ QAudioSink.start() returned None")
+        else:
+            print("✅ QAudioSink device created")
+            
+        print(f"Device is open: {self.device.isOpen() if self.device else 'N/A'}")
+        print(f"Device is writable: {self.device.isWritable() if self.device else 'N/A'}")
+        print(f"QAudioSink state: {self.audio_output.state()}")
+
+        if not self.device:
             print("[PitchAdjustedPlayer] ❌ Failed to start audio output — device is None")
             return
-
-        if not self.device.isOpen():
+        elif not self.device.isOpen():
             print("[PitchAdjustedPlayer] ❌ Audio output device is not open")
             return
 
@@ -271,8 +289,14 @@ class PitchAdjustedPlayer:
                 .run(capture_stdout=True, capture_stderr=True, overwrite_output=True)
             )
         except ffmpeg.Error as e:
-            print("[FFmpeg Error]", e.stderr.decode(errors="ignore"))
+            print("[FFmpeg Error]")
+            print(e.stderr.decode())
             raise
+            
+        print("[FFmpeg] Input:", input_path)
+        print(f"[FFmpeg] Output: {output_path}")
+        print(f"[FFmpeg] Codec: {codec}")
+        print(f"[FFmpeg] Start at: {start_ms / 1000:.2f}s")
 
         return output_path
         
@@ -292,8 +316,14 @@ class PitchAdjustedPlayer:
                 .run(capture_stdout=True, capture_stderr=True, overwrite_output=True)
             )
         except ffmpeg.Error as e:
-            print("[FFmpeg Error]", e.stderr.decode(errors="ignore"))
+            print("[FFmpeg Error]")
+            print(e.stderr.decode())
             raise
+            
+        print("[FFmpeg] Input:", input_path)
+        print(f"[FFmpeg] Output: {output_path}")
+        print(f"[FFmpeg] Codec: {codec}")
+        print(f"[FFmpeg] Start at: {start_ms / 1000:.2f}s")
 
         return output_path
         
@@ -547,6 +577,13 @@ class LibraryScanner(QThread):
                             self.progress_update.emit(msg)
                     except Exception as e:
                         print(f"[LibraryScanner] Error parsing {full_path}: {e}")
+                        
+        if not os.path.exists(output_path):
+            print("❌ FFmpeg output missing!")
+        else:
+            size = os.path.getsize(output_path)
+            print(f"[FFmpeg] Output file size: {size} bytes")
+            os.system(f'ffmpeg -i "{output_path}"')  # optional: debug format in CLI
 
         if self.isInterruptionRequested():
             print("[LibraryScanner] Interruption requested before saving cache.")
@@ -1329,6 +1366,11 @@ class MainWindow(QMainWindow):
         audio_format.setSampleRate(44100)
         audio_format.setChannelCount(2)
         audio_format.setSampleFormat(QAudioFormat.Int16)
+        
+        print("[Audio Format] Requested:")
+        print(f"  Sample Rate: {audio_format.sampleRate()}")
+        print(f"  Channels:    {audio_format.channelCount()}")
+        print(f"  Sample Type: {audio_format.sampleFormat()}")
 
         if not output_device.isFormatSupported(audio_format):
             print("❌ 44100Hz Int16 not supported — falling back to preferred format.")
