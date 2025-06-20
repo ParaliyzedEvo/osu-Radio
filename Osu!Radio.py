@@ -1,4 +1,4 @@
-__version__ = "1.7.0b1"
+__version__ = "1.7.0b2"
 
 import sys
 import os
@@ -14,7 +14,6 @@ import shutil
 import subprocess
 import tempfile
 
-
 # 1) Point Python at wherever you unzipped ffmpeg.exe
 #    Change the path below to match YOUR install directory
 ffmpeg_dir = r"C:\ffmpeg\bin"
@@ -29,8 +28,6 @@ try:
     print("[Debug] ffmpeg found:", out.stdout.splitlines()[0])
 except Exception as e:
     print("[Error] ffmpeg NOT found in PATH!", e)
-
-
 
 import ffmpeg
 import platform
@@ -67,9 +64,6 @@ IS_WINDOWS = os.name == "nt"
 BASE_PATH = Path(getattr(sys, "frozen", False) and sys.executable or __file__).resolve().parent
 DATABASE_FILE = BASE_PATH / "songs.db"
 SETTINGS_FILE = BASE_PATH / "settings.json"
-
-
-
 
 if IS_WINDOWS:
     import ctypes
@@ -187,8 +181,6 @@ class PitchAdjustedPlayer:
         self.current_temp = None
         # ——————————————————————————————————————————————
         # Where to store temp WAVs for speed/pitch adjustments
-        from pathlib import Path
-        import tempfile
 
         # e.g. use OS temp folder with a subdirectory
         self._cache_dir = Path(tempfile.gettempdir()) / "OsuRadioCache"
@@ -974,6 +966,7 @@ class MainWindow(QMainWindow):
             else:
                 raise RuntimeError(f"Unsupported platform: {system}")
         self.setup_media_players()
+        
         #ffmpeg_path = get_embedded_ffmpeg_path()
         #ffmpeg._ffmpeg_path = ffmpeg_path
         #ffmpeg._probe = os.path.join(os.path.dirname(ffmpeg_path), "ffprobe" + (".exe" if platform.system() == "Windows" else ""))
