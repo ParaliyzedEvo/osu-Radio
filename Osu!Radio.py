@@ -171,14 +171,38 @@ class PitchAdjustedPlayer:
             self.device.close()
         if self.current_temp and os.path.exists(self.current_temp):
             os.remove(self.current_temp)
+            
+    def _decode_to_wav(self, input_path: str) -> str:
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+        output_path = temp_file.name
+
+        (
+            ffmpeg
+            .input(input_path)
+            .output(output_path, format='wav', ar=44100, ac=2, acodec='pcm_f32le')
+            .run(capture_stdout=True, capture_stderr=True, overwrite_output=True)
+        )
+        return output_path
 
     def play(self, input_path: str, speed: float = 1.0, preserve_pitch: bool = True, start_ms: int = 0):
         self.stop()
 
-        if preserve_pitch and speed != 1.0:
+        # Only use FFmpeg if speed is changed and pitch needs to be preserved
+        use_ffmpeg = True
+
+        if use_ffmpeg:
+            temp_path = self._process_audio_with_ffmpeg(input_path, speed, start_ms)
+        elif start_ms > 0:
+            temp_path = self._trim_audio_with_ffmpeg(input_path, start_ms)
+        else:
+            temp_path = input_path  # Just play original file as-is
+            
+        if speed == 1.0:
+            temp_path = self._trim_audio_with_ffmpeg(input_path, start_ms) if start_ms > 0 else self._decode_to_wav(input_path)
+        elif preserve_pitch:
             temp_path = self._process_audio_with_ffmpeg(input_path, speed, start_ms)
         else:
-            temp_path = self._trim_audio_with_ffmpeg(input_path, start_ms) if start_ms > 0 else input_path
+            temp_path = self._trim_audio_with_ffmpeg(input_path, start_ms)
 
         if not os.path.exists(temp_path) or os.path.getsize(temp_path) < 1024:
             print(f"[FFmpeg] Output file {temp_path} is missing or too small")
@@ -190,7 +214,7 @@ class PitchAdjustedPlayer:
             print("[PitchAdjustedPlayer] Warning: Temp audio file is empty.")
             return
 
-        if (preserve_pitch and speed != 1.0) or start_ms > 0:
+        if temp_path != input_path:
             self.current_temp = temp_path
 
         # Load data into QBuffer
