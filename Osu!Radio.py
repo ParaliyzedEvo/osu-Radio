@@ -13,6 +13,25 @@ import tempfile
 import shutil
 import subprocess
 import tempfile
+
+
+# 1) Point Python at wherever you unzipped ffmpeg.exe
+#    Change the path below to match YOUR install directory
+ffmpeg_dir = r"C:\ffmpeg\bin"
+os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
+
+# 2) Debug check: make sure Python REALLY can call ffmpeg now
+try:
+    out = subprocess.run(
+        ["ffmpeg", "-version"],
+        capture_output=True, text=True, check=True
+    )
+    print("[Debug] ffmpeg found:", out.stdout.splitlines()[0])
+except Exception as e:
+    print("[Error] ffmpeg NOT found in PATH!", e)
+
+
+
 import ffmpeg
 import platform
 from datetime import datetime
@@ -48,6 +67,9 @@ IS_WINDOWS = os.name == "nt"
 BASE_PATH = Path(getattr(sys, "frozen", False) and sys.executable or __file__).resolve().parent
 DATABASE_FILE = BASE_PATH / "songs.db"
 SETTINGS_FILE = BASE_PATH / "settings.json"
+
+
+
 
 if IS_WINDOWS:
     import ctypes
@@ -163,6 +185,15 @@ class PitchAdjustedPlayer:
         self.buffer = None
         self.device = None
         self.current_temp = None
+        # ——————————————————————————————————————————————
+        # Where to store temp WAVs for speed/pitch adjustments
+        from pathlib import Path
+        import tempfile
+
+        # e.g. use OS temp folder with a subdirectory
+        self._cache_dir = Path(tempfile.gettempdir()) / "OsuRadioCache"
+        self._cache_dir.mkdir(parents=True, exist_ok=True)
+        # ——————————————————————————————————————————————
 
     def stop(self):
         if self.audio_output:
@@ -189,11 +220,9 @@ class PitchAdjustedPlayer:
 
         # Only use FFmpeg if speed is changed and pitch needs to be preserved
         use_ffmpeg = True
-        
-        print(f"[Debug] Speed: {speed}, Pitch: {preserve_pitch}, Seek: {start_ms}")
 
         if use_ffmpeg:
-            temp_path = self._process_audio_with_ffmpeg(input_path, speed, start_ms)
+            temp_path = self._process_audio_with_ffmpeg(input_path, speed, preserve_pitch, start_ms)
         elif start_ms > 0:
             temp_path = self._trim_audio_with_ffmpeg(input_path, start_ms)
         else:
@@ -227,9 +256,7 @@ class PitchAdjustedPlayer:
             print("[PitchAdjustedPlayer] Failed to open buffer for reading")
             return
 
-        print(f"[Debug] Buffer opened: size={self.buffer.size()} bytes")
-        print(f"[Debug] Buffer is readable? {self.buffer.isReadable()}")
-        print(f"[Debug] Buffer is open? {self.buffer.isOpen()}")
+        print(f"[Debug] Buffer opened, size={self.buffer.size()} bytes")
         
         print("[PitchAdjustedPlayer] Trying to start audio with:")
         print(f"  Format: {self.audio_format.sampleFormat()}")
@@ -239,64 +266,73 @@ class PitchAdjustedPlayer:
         # Reset sink if needed
         if self.audio_output.state() != QAudio.StoppedState:
             self.audio_output.stop()
-            
-        print("[PitchAdjustedPlayer] Trying to start audio with:")
-        print(f"  Format: {self.audio_format.sampleFormat()}")
-        print(f"  Sample Rate: {self.audio_format.sampleRate()}")
-        print(f"  Channels: {self.audio_format.channelCount()}")
-        print(f"  Buffer Size: {self.buffer.size()} bytes")
 
         self.device = self.audio_output.start(self.buffer)
 
         if not self.device:
-            print("❌ QAudioSink.start() returned None")
-        else:
-            print("✅ QAudioSink device created")
-            
-        print(f"Device is open: {self.device.isOpen() if self.device else 'N/A'}")
-        print(f"Device is writable: {self.device.isWritable() if self.device else 'N/A'}")
-        print(f"QAudioSink state: {self.audio_output.state()}")
-
-        if not self.device:
             print("[PitchAdjustedPlayer] ❌ Failed to start audio output — device is None")
             return
-        elif not self.device.isOpen():
+
+        if not self.device.isOpen():
             print("[PitchAdjustedPlayer] ❌ Audio output device is not open")
             return
 
         print("[PitchAdjustedPlayer] ✅ Audio playback started")
 
-    def _process_audio_with_ffmpeg(self, input_path: str, speed: float, start_ms: int = 0) -> str:
-        tempo = 1.0 / speed
-        filter_str = f"asetrate=44100*{speed},atempo={tempo},aresample=44100"
+    def _process_audio_with_ffmpeg(self, input_path: str, speed: float, preserve_pitch: bool, start_ms: int = 0) -> str:
 
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-        output_path = temp_file.name
-        codec = 'pcm_s16le' if self.audio_format.sampleFormat() == QAudioFormat.Int16 else 'pcm_f32le'
-        
-        if start_ms < 0:
-            start_ms = 0
+        # 1) Build the cache-filename and temp path
+        base, _ = os.path.splitext(os.path.basename(input_path))
+        temp_path = os.path.join(self._cache_dir, f"{base}_{speed:.2f}.wav")
 
+        # 2) Decide on the new sample-rate trick only if NOT preserving pitch
+        #    Otherwise keep the original 44.1kHz
+        if preserve_pitch:
+            new_rate = 44100
+        else:
+            new_rate = int(44100 * speed)
+
+        # 3) Kick off ffmpeg filter chain
         try:
+            # Base: seek to the right spot
+            inp = ffmpeg.input(input_path, ss=start_ms / 1000)
+
+            if preserve_pitch:
+                # **Tempo-only**: just use atempo (keeps original pitch)
+                if not 0.5 <= speed <= 2.0:
+                    raise ValueError("Speed must be between 0.5 and 2.0 when preserving pitch")
+                stream = inp.filter("atempo", speed)
+            else:
+                # **Pitch+speed**: change sample rate, then resample back
+                #   (new_rate = 44100 * speed)
+                stream = (
+                    inp
+                    .filter("asetrate", sample_rate=new_rate)
+                    .filter("aresample", sample_rate=44100)
+                )
+
+            # 4) Output to WAV with 16-bit PCM, stereo, 44.1kHz
             (
-                ffmpeg
-                .input(input_path, ss=start_ms / 1000)
-                .filter_('aformat', sample_rates='44100', channel_layouts='stereo', sample_fmts='s16')
-                .filter_('aresample', resampler='soxr')
-                .filter_('asetrate', 44100 * speed)
-                .filter_('atempo', tempo)
-                .output(output_path, ar=44100, ac=2, acodec=codec, format='wav')
-                .run(capture_stdout=True, capture_stderr=True, overwrite_output=True)
+                stream
+                .output(
+                    temp_path,
+                    format="wav",
+                    acodec="pcm_s16le",
+                    ac=2,
+                    ar="44100"
+                )
+                .run(overwrite_output=True)
             )
+            return temp_path
+
         except ffmpeg.Error as e:
-            print("[FFmpeg Error]")
-            print(e.stderr.decode())
+            # Safely decode stdout/stderr if present
+            out = e.stdout.decode("utf8", "ignore") if e.stdout else "<no stdout>"
+            err = e.stderr.decode("utf8", "ignore") if e.stderr else "<no stderr>"
+            print("[FFmpeg stdout]\n", out)
+            print("[FFmpeg stderr]\n", err)
             raise
-            
-        print("[FFmpeg] Input:", input_path)
-        print(f"[FFmpeg] Output: {output_path}")
-        print(f"[FFmpeg] Codec: {codec}")
-        print(f"[FFmpeg] Start at: {start_ms / 1000:.2f}s")
+
 
         return output_path
         
@@ -316,14 +352,8 @@ class PitchAdjustedPlayer:
                 .run(capture_stdout=True, capture_stderr=True, overwrite_output=True)
             )
         except ffmpeg.Error as e:
-            print("[FFmpeg Error]")
-            print(e.stderr.decode())
+            print("[FFmpeg Error]", e.stderr.decode(errors="ignore"))
             raise
-            
-        print("[FFmpeg] Input:", input_path)
-        print(f"[FFmpeg] Output: {output_path}")
-        print(f"[FFmpeg] Codec: {codec}")
-        print(f"[FFmpeg] Start at: {start_ms / 1000:.2f}s")
 
         return output_path
         
@@ -577,13 +607,6 @@ class LibraryScanner(QThread):
                             self.progress_update.emit(msg)
                     except Exception as e:
                         print(f"[LibraryScanner] Error parsing {full_path}: {e}")
-                        
-        if not os.path.exists(output_path):
-            print("❌ FFmpeg output missing!")
-        else:
-            size = os.path.getsize(output_path)
-            print(f"[FFmpeg] Output file size: {size} bytes")
-            os.system(f'ffmpeg -i "{output_path}"')  # optional: debug format in CLI
 
         if self.isInterruptionRequested():
             print("[LibraryScanner] Interruption requested before saving cache.")
@@ -951,11 +974,11 @@ class MainWindow(QMainWindow):
             else:
                 raise RuntimeError(f"Unsupported platform: {system}")
         self.setup_media_players()
-        ffmpeg_path = get_embedded_ffmpeg_path()
-        ffmpeg._ffmpeg_path = ffmpeg_path
-        ffmpeg._probe = os.path.join(os.path.dirname(ffmpeg_path), "ffprobe" + (".exe" if platform.system() == "Windows" else ""))
-        if platform.system() != "Windows":
-            os.chmod(ffmpeg_path, 0o755)
+        #ffmpeg_path = get_embedded_ffmpeg_path()
+        #ffmpeg._ffmpeg_path = ffmpeg_path
+        #ffmpeg._probe = os.path.join(os.path.dirname(ffmpeg_path), "ffprobe" + (".exe" if platform.system() == "Windows" else ""))
+        #if platform.system() != "Windows":
+        #    os.chmod(ffmpeg_path, 0o755)
 
         # Central + stacking
         central = QWidget(self)
@@ -1366,11 +1389,6 @@ class MainWindow(QMainWindow):
         audio_format.setSampleRate(44100)
         audio_format.setChannelCount(2)
         audio_format.setSampleFormat(QAudioFormat.Int16)
-        
-        print("[Audio Format] Requested:")
-        print(f"  Sample Rate: {audio_format.sampleRate()}")
-        print(f"  Channels:    {audio_format.channelCount()}")
-        print(f"  Sample Type: {audio_format.sampleFormat()}")
 
         if not output_device.isFormatSupported(audio_format):
             print("❌ 44100Hz Int16 not supported — falling back to preferred format.")
