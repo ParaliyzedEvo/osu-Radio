@@ -13,24 +13,9 @@ import tempfile
 import shutil
 import subprocess
 import tempfile
-
-# 1) Point Python at wherever you unzipped ffmpeg.exe
-#    Change the path below to match YOUR install directory
-ffmpeg_dir = r"C:\ffmpeg\bin"
-os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
-
-# 2) Debug check: make sure Python REALLY can call ffmpeg now
-try:
-    out = subprocess.run(
-        ["ffmpeg", "-version"],
-        capture_output=True, text=True, check=True
-    )
-    print("[Debug] ffmpeg found:", out.stdout.splitlines()[0])
-except Exception as e:
-    print("[Error] ffmpeg NOT found in PATH!", e)
-
 import ffmpeg
 import platform
+import atexit
 from datetime import datetime
 from dateutil import parser as date_parser
 from packaging import version
@@ -41,7 +26,7 @@ from PySide6.QtCore import (
     Qt, QUrl, QTimer, QThread, QMetaObject,
     QPropertyAnimation, QEasingCurve, Property,
     QSequentialAnimationGroup, QPauseAnimation, Signal,
-    QEvent, QIODevice, QBuffer, QByteArray
+    QEvent, QIODevice, QBuffer, QByteArray, QObject, QFile
 )
 from PySide6.QtGui import (
     QIcon, QPixmap, QPainter, QColor,
@@ -95,6 +80,33 @@ else:
     ICON_FILE = "Osu!RadioIcon.png"  # fallback
     
 ICON_PATH = ASSETS_PATH / ICON_FILE
+
+# === FFmpeg bin setup ===
+def get_ffmpeg_bin_path():
+    base_dir = Path(__file__).resolve().parent / "ffmpeg_bin"
+    system = platform.system().lower()
+    if system == "windows":
+        return base_dir / "windows" / "bin" / "ffmpeg.exe"
+    elif system == "darwin":
+        return base_dir / "macos" / "ffmpeg"
+    elif system == "linux":
+        return base_dir / "linux" / "bin" / "ffmpeg"
+    else:
+        raise RuntimeError(f"Unsupported platform: {system}")
+
+ffmpeg_path = str(get_ffmpeg_bin_path())
+
+# Monkey-patch ffmpeg-python to use custom ffmpeg binary
+ffmpeg._run.FFmpeg = lambda *args, **kwargs: subprocess.Popen(
+    [ffmpeg_path, *args[1:]],
+    **kwargs
+)
+
+try:
+    out = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True, check=True)
+    print("[Debug] ffmpeg found:", out.stdout.splitlines()[0])
+except Exception as e:
+    print("[Error] ffmpeg NOT found in PATH!", e)
 
 # Utility functions
 def get_audio_path(song: dict) -> Path:
@@ -172,20 +184,63 @@ def read_osu_lines(path: str) -> list:
     with open(path, encoding="utf-8", errors="ignore") as f:
         return f.read().splitlines()
         
-class PitchAdjustedPlayer:
-    def __init__(self, audio_output: QAudioSink, audio_format: QAudioFormat):
+def get_audio_duration(file_path):
+    try:
+        probe = ffmpeg.probe(str(file_path))
+        duration = float(probe['format']['duration'])
+        return duration
+    except Exception as e:
+        print(f"Error getting duration: {e}")
+        return None
+
+
+def process_audio(input_file, speed=1.0, adjust_pitch=False, cache_dir=None):
+    input_path = Path(input_file)
+    if cache_dir is None:
+        cache_dir = Path(tempfile.gettempdir()) / "OsuRadioCache"
+    cache_dir.mkdir(exist_ok=True)
+
+    base_name = input_path.stem
+    suffix = f"{speed:.2f}x_pitch" if adjust_pitch else f"{speed:.2f}x"
+    output_file = cache_dir / f"{base_name}_{suffix}.wav"
+
+    if output_file.exists():
+        return output_file, get_audio_duration(output_file)
+
+    print(f"[FFmpeg] Processing '{input_file}' → '{output_file}' with speed={speed}, pitch_adjust={adjust_pitch}")
+
+    stream = ffmpeg.input(str(input_file))
+
+    if speed == 1.0:
+        stream.output(str(output_file), format='wav', acodec="pcm_s16le", ac=2, ar=44100).run(overwrite_output=True)
+    else:
+        if adjust_pitch:
+            remaining = speed
+            while remaining < 0.5 or remaining > 2.0:
+                factor = 0.5 if remaining < 0.5 else 2.0
+                stream = stream.filter('atempo', factor)
+                remaining /= factor
+            stream = stream.filter('atempo', remaining)
+        else:
+            stream = stream.filter('rubberband', tempo=speed)
+
+        stream.output(str(output_file), acodec="pcm_s16le", ac=2, ar=44100).run(overwrite_output=True)
+
+    return output_file, get_audio_duration(output_file)
+        
+class PitchAdjustedPlayer(QObject):
+    def __init__(self, audio_output, audio_format, parent=None):
+        super().__init__(parent)
         self.audio_output = audio_output
         self.audio_format = audio_format
         self.buffer = None
         self.device = None
         self.current_temp = None
-        # ——————————————————————————————————————————————
-        # Where to store temp WAVs for speed/pitch adjustments
+        self.last_temp = None
 
-        # e.g. use OS temp folder with a subdirectory
+        # Temp WAV folder: <system temp>/OsuRadioCache
         self._cache_dir = Path(tempfile.gettempdir()) / "OsuRadioCache"
         self._cache_dir.mkdir(parents=True, exist_ok=True)
-        # ——————————————————————————————————————————————
 
     def stop(self):
         if self.audio_output:
@@ -194,160 +249,66 @@ class PitchAdjustedPlayer:
             self.device.close()
         if self.current_temp and os.path.exists(self.current_temp):
             os.remove(self.current_temp)
-            
-    def _decode_to_wav(self, input_path: str) -> str:
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-        output_path = temp_file.name
-
-        (
-            ffmpeg
-            .input(input_path)
-            .output(output_path, format='wav', ar=44100, ac=2, acodec='pcm_f32le')
-            .run(capture_stdout=True, capture_stderr=True, overwrite_output=True)
-        )
-        return output_path
 
     def play(self, input_path: str, speed: float = 1.0, preserve_pitch: bool = True, start_ms: int = 0):
         self.stop()
 
-        # Only use FFmpeg if speed is changed and pitch needs to be preserved
-        use_ffmpeg = True
+        print(f"[Debug] Speed={speed}, PitchAdjust={preserve_pitch}, Seek={start_ms}")
+        
+        adjust_pitch = not preserve_pitch
 
-        if use_ffmpeg:
-            temp_path = self._process_audio_with_ffmpeg(input_path, speed, preserve_pitch, start_ms)
-        elif start_ms > 0:
-            temp_path = self._trim_audio_with_ffmpeg(input_path, start_ms)
-        else:
-            temp_path = input_path  # Just play original file as-is
-            
-        if speed == 1.0:
-            temp_path = self._trim_audio_with_ffmpeg(input_path, start_ms) if start_ms > 0 else self._decode_to_wav(input_path)
-        elif preserve_pitch:
-            temp_path = self._process_audio_with_ffmpeg(input_path, speed, start_ms)
-        else:
-            temp_path = self._trim_audio_with_ffmpeg(input_path, start_ms)
+        processed_file, duration = process_audio(
+            input_file=input_path,
+            speed=speed,
+            adjust_pitch=adjust_pitch
+        )
 
-        if not os.path.exists(temp_path) or os.path.getsize(temp_path) < 1024:
-            print(f"[FFmpeg] Output file {temp_path} is missing or too small")
-            return
-
-        with open(temp_path, 'rb') as f:
+        with open(processed_file, 'rb') as f:
             data = f.read()
         if not data:
-            print("[PitchAdjustedPlayer] Warning: Temp audio file is empty.")
+            print("[Error] Processed file is empty.")
             return
 
-        if temp_path != input_path:
-            self.current_temp = temp_path
-
-        # Load data into QBuffer
-        self.buffer = QBuffer()
-        self.buffer.setData(QByteArray(data))
-
-        if not self.buffer.open(QIODevice.ReadOnly):
-            print("[PitchAdjustedPlayer] Failed to open buffer for reading")
+        self.file = QFile(str(processed_file))
+        if not self.file.open(QIODevice.ReadOnly):
+            print("[QFile Error] Failed to open file for reading")
             return
+        self.device = self.audio_output.start(self.file)
 
-        print(f"[Debug] Buffer opened, size={self.buffer.size()} bytes")
-        
-        print("[PitchAdjustedPlayer] Trying to start audio with:")
-        print(f"  Format: {self.audio_format.sampleFormat()}")
-        print(f"  Rate:   {self.audio_format.sampleRate()}")
-        print(f"  Size:   {self.buffer.size()} bytes")
-
-        # Reset sink if needed
         if self.audio_output.state() != QAudio.StoppedState:
             self.audio_output.stop()
 
         self.device = self.audio_output.start(self.buffer)
 
         if not self.device:
-            print("[PitchAdjustedPlayer] ❌ Failed to start audio output — device is None")
+            print("[QAudioSink Error] Failed to start device")
+            return
+        elif not self.device.isOpen():
+            print("[QAudioSink Error] Device not open")
             return
 
-        if not self.device.isOpen():
-            print("[PitchAdjustedPlayer] ❌ Audio output device is not open")
-            return
-
-        print("[PitchAdjustedPlayer] ✅ Audio playback started")
-
-    def _process_audio_with_ffmpeg(self, input_path: str, speed: float, preserve_pitch: bool, start_ms: int = 0) -> str:
-
-        # 1) Build the cache-filename and temp path
-        base, _ = os.path.splitext(os.path.basename(input_path))
-        temp_path = os.path.join(self._cache_dir, f"{base}_{speed:.2f}.wav")
-
-        # 2) Decide on the new sample-rate trick only if NOT preserving pitch
-        #    Otherwise keep the original 44.1kHz
-        if preserve_pitch:
-            new_rate = 44100
-        else:
-            new_rate = int(44100 * speed)
-
-        # 3) Kick off ffmpeg filter chain
-        try:
-            # Base: seek to the right spot
-            inp = ffmpeg.input(input_path, ss=start_ms / 1000)
-
-            if preserve_pitch:
-                # **Tempo-only**: just use atempo (keeps original pitch)
-                if not 0.5 <= speed <= 2.0:
-                    raise ValueError("Speed must be between 0.5 and 2.0 when preserving pitch")
-                stream = inp.filter("atempo", speed)
-            else:
-                # **Pitch+speed**: change sample rate, then resample back
-                #   (new_rate = 44100 * speed)
-                stream = (
-                    inp
-                    .filter("asetrate", sample_rate=new_rate)
-                    .filter("aresample", sample_rate=44100)
-                )
-
-            # 4) Output to WAV with 16-bit PCM, stereo, 44.1kHz
-            (
-                stream
-                .output(
-                    temp_path,
-                    format="wav",
-                    acodec="pcm_s16le",
-                    ac=2,
-                    ar="44100"
-                )
-                .run(overwrite_output=True)
-            )
-            return temp_path
-
-        except ffmpeg.Error as e:
-            # Safely decode stdout/stderr if present
-            out = e.stdout.decode("utf8", "ignore") if e.stdout else "<no stdout>"
-            err = e.stderr.decode("utf8", "ignore") if e.stderr else "<no stderr>"
-            print("[FFmpeg stdout]\n", out)
-            print("[FFmpeg stderr]\n", err)
-            raise
-
-
-        return output_path
+        print("[PitchAdjustedPlayer] ✅ Playback started")
         
-    def _trim_audio_with_ffmpeg(self, input_path: str, start_ms: int) -> str:
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-        output_path = temp_file.name
-        codec = 'pcm_s16le' if self.audio_format.sampleFormat() == QAudioFormat.Int16 else 'pcm_f32le'
-        
-        if start_ms < 0:
-            start_ms = 0
+        # Before starting a new track, clean up the previous one
+        if self.last_temp and self.last_temp.exists():
+            try:
+                self.last_temp.unlink()
+                print(f"[Cleanup] Deleted old cache: {self.last_temp}")
+            except Exception as e:
+                print(f"[Cleanup Error] Could not delete {self.last_temp}: {e}")
+                
+        base_name = Path(input_path).stem
+        for f in self._cache_dir.glob(f"{base_name}_*.wav"):
+            if f != Path(processed_file):
+                try:
+                    f.unlink()
+                    print(f"[Cleanup] Deleted stale version: {f}")
+                except Exception as e:
+                    print(f"[Cleanup] Could not delete {f}: {e}")
 
-        try:
-            (
-                ffmpeg
-                .input(input_path, ss=start_ms / 1000)
-                .output(output_path, ar=44100, ac=2, acodec=codec, format='wav')
-                .run(capture_stdout=True, capture_stderr=True, overwrite_output=True)
-            )
-        except ffmpeg.Error as e:
-            print("[FFmpeg Error]", e.stderr.decode(errors="ignore"))
-            raise
-
-        return output_path
+        # Store current_temp as last_temp
+        self.last_temp = self.current_temp
+        self.current_temp = Path(processed_file)
         
 class OsuParser:
     @staticmethod
@@ -1386,6 +1347,8 @@ class MainWindow(QMainWindow):
         if not output_device.isFormatSupported(audio_format):
             print("❌ 44100Hz Int16 not supported — falling back to preferred format.")
             audio_format = output_device.preferredFormat()
+        else:
+            print("✅ Using 44100Hz Int16")
 
         print("[Audio Format] Using format:")
         print(f"  Sample Rate: {audio_format.sampleRate()}")
@@ -1841,12 +1804,12 @@ class MainWindow(QMainWindow):
         self.song_list.setCurrentRow(self.current_index)
         self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
 
-    def closeEvent(self, ev):
-        # 0) stop the scanner thread (if it's still running)
+    def closeEvent(self, event):
+        # 0) Stop the scanner thread (if it's still running)
         if hasattr(self, "_scanner") and self._scanner.isRunning():
             print("[closeEvent] Requesting scanner thread interruption...")
             self._scanner.requestInterruption()
-            self._scanner.wait(3000)  # Allow 3 seconds max to cleanly exit
+            self._scanner.wait(3000)
 
         # 1) Unregister global hotkeys
         if user32 and self.media_keys_enabled:
@@ -1860,13 +1823,25 @@ class MainWindow(QMainWindow):
         except:
             pass
 
-        super().closeEvent(ev)
-        
-        self.save_user_settings()
-        
+        # 3) Stop pitch player and timer
         if hasattr(self, "pitch_player"):
             self.pitch_player.stop()
             self.playback_timer.stop()
+
+        # 4) Save settings
+        self.save_user_settings()
+
+        # 5) Clean up temp cache folder
+        cache_path = Path(tempfile.gettempdir()) / "OsuRadioCache"
+        if cache_path.exists():
+            try:
+                shutil.rmtree(cache_path)
+                print("[Exit Cleanup] Deleted temp cache folder.")
+            except Exception as e:
+                print(f"[Exit Cleanup] Failed to delete cache: {e}")
+
+        # 6) Accept the event
+        event.accept()
         
     def _on_audio_status(self, status):
         # QMediaPlayer.EndOfMedia fires once when a track finishes
