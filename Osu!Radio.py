@@ -1,4 +1,4 @@
-__version__ = "1.7.0b2"
+__version__ = "1.7.0b3"
 
 import sys
 import os
@@ -16,6 +16,7 @@ import tempfile
 import ffmpeg
 import platform
 import atexit
+import wave
 from datetime import datetime
 from dateutil import parser as date_parser
 from packaging import version
@@ -228,87 +229,92 @@ def process_audio(input_file, speed=1.0, adjust_pitch=False, cache_dir=None):
 
     return output_file, get_audio_duration(output_file)
         
-class PitchAdjustedPlayer(QObject):
-    def __init__(self, audio_output, audio_format, parent=None):
-        super().__init__(parent)
+class PitchAdjustedPlayer:
+    def __init__(self, audio_output: QAudioOutput, parent=None):
+        self.player = QMediaPlayer(parent)
+        self.player.setAudioOutput(audio_output)
+        self._last_path = None
         self.audio_output = audio_output
-        self.audio_format = audio_format
-        self.buffer = None
-        self.device = None
         self.current_temp = None
         self.last_temp = None
-
-        # Temp WAV folder: <system temp>/OsuRadioCache
-        self._cache_dir = Path(tempfile.gettempdir()) / "OsuRadioCache"
-        self._cache_dir.mkdir(parents=True, exist_ok=True)
-
-    def stop(self):
-        if self.audio_output:
-            self.audio_output.stop()
-        if self.device:
-            self.device.close()
-        if self.current_temp and os.path.exists(self.current_temp):
-            os.remove(self.current_temp)
+        self.playback_rate = 1.0
+        self.preserve_pitch = True  # default toggle state (set externally)
+        
+    def _get_wav_duration_ms(self, path):
+        try:
+            if path.endswith(".wav"):
+                with wave.open(path, 'rb') as wf:
+                    frames = wf.getnframes()
+                    rate = wf.getframerate()
+                    return int((frames / rate) * 1000)
+            else:
+                duration = get_audio_duration(path)
+                return int(duration * 1000) if duration else 0
+        except Exception as e:
+            print(f"[Duration Error] Could not get duration for {path}: {e}")
+            return 0
 
     def play(self, input_path: str, speed: float = 1.0, preserve_pitch: bool = True, start_ms: int = 0):
-        self.stop()
-
-        print(f"[Debug] Speed={speed}, PitchAdjust={preserve_pitch}, Seek={start_ms}")
-        
-        adjust_pitch = not preserve_pitch
-
-        processed_file, duration = process_audio(
-            input_file=input_path,
-            speed=speed,
-            adjust_pitch=adjust_pitch
-        )
-
-        with open(processed_file, 'rb') as f:
-            data = f.read()
-        if not data:
-            print("[Error] Processed file is empty.")
+        # Smart resume check: skip reprocessing if already loaded
+        if (
+            self.player.mediaStatus() == QMediaPlayer.LoadedMedia
+            and self._last_path == input_path
+            and self.playback_rate == speed
+            and self.preserve_pitch == preserve_pitch
+        ):
+            print(f"[Resume] Resuming existing playback at {self.player.position()} ms")
+            if start_ms > 0:
+                self.player.setPosition(start_ms)
+            self.player.play()
             return
 
-        self.file = QFile(str(processed_file))
-        if not self.file.open(QIODevice.ReadOnly):
-            print("[QFile Error] Failed to open file for reading")
-            return
-        self.device = self.audio_output.start(self.file)
+        self._last_path = input_path
+        self.preserve_pitch = preserve_pitch
+        self.playback_rate = speed
 
-        if self.audio_output.state() != QAudio.StoppedState:
-            self.audio_output.stop()
+        print(f"[Debug] Speed={speed}, PitchAdjust={not preserve_pitch}, Seek={start_ms}")
 
-        self.device = self.audio_output.start(self.buffer)
+        if preserve_pitch:
+            processed_file, _ = process_audio(input_path, speed=speed, adjust_pitch=True)
+            file_url = QUrl.fromLocalFile(str(processed_file))
+            self.player.setSource(file_url)
+            self.current_temp = Path(processed_file)
+        else:
+            file_url = QUrl.fromLocalFile(str(input_path))
+            self.player.setSource(file_url)
+            self.player.setPlaybackRate(speed)
+            self.current_temp = None
 
-        if not self.device:
-            print("[QAudioSink Error] Failed to start device")
-            return
-        elif not self.device.isOpen():
-            print("[QAudioSink Error] Device not open")
-            return
+        self.last_duration = self._get_wav_duration_ms(file_url.toLocalFile())
 
-        print("[PitchAdjustedPlayer] ✅ Playback started")
-        
-        # Before starting a new track, clean up the previous one
-        if self.last_temp and self.last_temp.exists():
+        if start_ms > 0:
+            self.player.setPosition(start_ms)
+
+        self.player.play()
+        print(f"[QMediaPlayer] 🎵 Now playing: {file_url.toString()}")
+
+        # Delete the last file if safe
+        if self.last_temp and self.last_temp.exists() and self.last_temp != self.current_temp:
             try:
-                self.last_temp.unlink()
+                os.remove(self.last_temp)
                 print(f"[Cleanup] Deleted old cache: {self.last_temp}")
             except Exception as e:
                 print(f"[Cleanup Error] Could not delete {self.last_temp}: {e}")
-                
-        base_name = Path(input_path).stem
-        for f in self._cache_dir.glob(f"{base_name}_*.wav"):
-            if f != Path(processed_file):
-                try:
-                    f.unlink()
-                    print(f"[Cleanup] Deleted stale version: {f}")
-                except Exception as e:
-                    print(f"[Cleanup] Could not delete {f}: {e}")
 
-        # Store current_temp as last_temp
         self.last_temp = self.current_temp
-        self.current_temp = Path(processed_file)
+
+    def stop(self):
+        self.player.stop()
+        if self.current_temp and os.path.exists(self.current_temp):
+            # Avoid deleting if it's still the current one in use
+            if self.current_temp != self.last_temp:
+                try:
+                    os.remove(self.current_temp)
+                    print(f"[Stop] Deleted current temp: {self.current_temp}")
+                except Exception as e:
+                    print(f"[Stop] Failed to delete {self.current_temp}: {e}")
+                    
+        self.current_temp = None
         
 class OsuParser:
     @staticmethod
@@ -1130,6 +1136,8 @@ class MainWindow(QMainWindow):
 
         # Toggle Play/Pause
         self.btn_play_pause = QPushButton()
+        self.play_icon = self.style().standardIcon(QStyle.SP_MediaPlay)
+        self.pause_icon = self.style().standardIcon(QStyle.SP_MediaPause)
         self.update_play_pause_icon()
         self.btn_play_pause.clicked.connect(self.toggle_play)
         bot.addWidget(self.btn_play_pause)
@@ -1260,23 +1268,33 @@ class MainWindow(QMainWindow):
             rate = float(text.replace("x", "").strip())
             if rate <= 0:
                 raise ValueError("Speed must be positive.")
-                
-            if hasattr(self, "current_index"):
-                self.play_song_at_index(self.current_index)
-            print(f"[Playback Speed] Set to {rate}x")
-            default_speeds = ["0.5x", "0.75x", "1x", "1.25x", "1.5x", "2x"]
-            current_display = f"{rate}x"
 
+            if abs(rate - self.pitch_player.playback_rate) < 0.01:
+                return  # No change, skip
+
+            self.playback_rate = rate
+
+            if not self.preserve_pitch:
+                self.pitch_player.player.setPlaybackRate(rate)
+                print(f"[Playback Speed] Set to {rate}x")
+
+            default_speeds = ["0.5x", "0.75x", "1x", "1.25x", "1.5x", "2x"]
             self.speed_combo.blockSignals(True)
             self.speed_combo.clear()
             self.speed_combo.addItems(default_speeds)
-            self.speed_combo.setEditText(current_display)
+            self.speed_combo.setEditText(f"{rate}x")
             self.speed_combo.blockSignals(False)
 
         except ValueError:
-            QMessageBox.warning(self, "Invalid Speed", "Please enter a valid number above 0 (e.g., 1.25x).")
+            QMessageBox.warning(self, "Invalid Speed", "Enter a number above 0 (e.g., 1.25).")
             self.speed_combo.setEditText("1x")
-            self.audio.setPlaybackRate(1.0)
+            self.pitch_player.player.setPlaybackRate(1.0)
+            
+        if getattr(self, "is_playing", False):
+            self.seek(self.slider.value())
+            
+        if self.is_playing:
+            self.seek(self.slider.value())
         
     def _update_volume_label(self, v):
         self.volume_label.setText(f"{v}%")
@@ -1356,10 +1374,10 @@ class MainWindow(QMainWindow):
         print(f"  Sample Type: {audio_format.sampleFormat()}")
 
         # Create QAudioSink and set volume here (not in __init__)
-        self.audio_out = QAudioSink(output_device, audio_format, self)
+        self.audio_out = QAudioOutput(output_device, self)
         self.audio_out.setVolume(self.vol / 100)
 
-        self.pitch_player = PitchAdjustedPlayer(self.audio_out, audio_format)
+        self.pitch_player = PitchAdjustedPlayer(self.audio_out, self)
         
     def connect_slider_signals(self):
         # Link slider drag behavior and update preview time.
@@ -1545,9 +1563,9 @@ class MainWindow(QMainWindow):
         
     def update_play_pause_icon(self):
         if getattr(self, "is_playing", False):
-            self.btn_play_pause.setIcon(self.style().standardIcon(QStyle.SP_MediaPause))
+            self.btn_play_pause.setIcon(self.pause_icon)
         else:
-            self.btn_play_pause.setIcon(self.style().standardIcon(QStyle.SP_MediaPlay))
+            self.btn_play_pause.setIcon(self.play_icon)
 
     def update_loop_icon(self):
         if self.loop_mode == 0:
@@ -1571,21 +1589,18 @@ class MainWindow(QMainWindow):
         self.audio.setSource(QUrl.fromLocalFile(str(audio_path)))
         self.audio.play()
         self.now_lbl.setText(f"{song['artist']} - {song['title']}")
-
+       
     def toggle_play(self):
-        if getattr(self, "is_playing", False):
-            self.pitch_player.stop()
-            self.playback_timer.stop()
-            self.is_playing = False
+        # Play if paused/stopped, pause if playing, and update icon.
+        state = self.audio.playbackState()
+        if state == QMediaPlayer.PlayingState:
+            self.audio.pause()
         else:
-            self.play_song_at_index(self.current_index)
-            self.is_playing = True
+            self.audio.play()
         self.update_play_pause_icon()
    
     def pause_song(self):
-        self.pitch_player.stop()
-        self.is_playing = False
-        self.update_play_pause_icon()
+        self.audio.pause()
 
     def play_song_at_index(self, index):
         self.current_index = index
@@ -1615,10 +1630,15 @@ class MainWindow(QMainWindow):
         # Set and play the media
         speed = float(self.speed_combo.currentText().replace("x", ""))
         self.pitch_player.play(str(path), speed=speed, preserve_pitch=self.preserve_pitch)
+        self.current_duration = self.pitch_player.last_duration
+        self.slider.setRange(0, self.current_duration)
+        self.total_label.setText(self.format_time(self.current_duration))
 
         # Update UI
         self.now_lbl.setText(f"{song.get('title','')} — {song.get('artist','')}")
         self.song_list.setCurrentRow(index)
+        self.is_playing = True
+        self.update_play_pause_icon()
 
     def next_song(self):
         if self.loop_mode == 2:  # Loop single
@@ -1645,14 +1665,26 @@ class MainWindow(QMainWindow):
     def seek(self, pos):
         print(f"[Seek] Jump to position {pos} ms")
 
-        # Re-play from the new position
         song = self.queue[self.current_index]
         path = get_audio_path(song)
         speed = float(self.speed_combo.currentText().replace("x", ""))
-        
+
         self._playback_start_time = monotonic() - (pos / 1000)
         print(f"[Seek Debug] path: {path}, speed: {speed}, preserve_pitch: {self.preserve_pitch}, start: {pos}")
+
         self.pitch_player.play(str(path), speed=speed, preserve_pitch=self.preserve_pitch, start_ms=pos)
+        self.current_duration = self.pitch_player.last_duration
+        self.slider.setRange(0, self.current_duration)
+        self.total_label.setText(self.format_time(self.current_duration))
+        self.current_duration = self.pitch_player.last_duration
+        self.slider.setRange(0, self.current_duration)
+        self.slider.setValue(pos)
+
+        # Update seek label
+        current_time = pos
+        total_time = self.current_duration
+        self.elapsed_label.setText(self.format_time(current_time))
+        self.total_label.setText(self.format_time(total_time))
 
     def open_settings(self):
         SettingsDialog(self).exec()
@@ -1841,12 +1873,22 @@ class MainWindow(QMainWindow):
                 print(f"[Exit Cleanup] Failed to delete cache: {e}")
 
         # 6) Accept the event
+        QTimer.singleShot(200, self.cleanup_cache)
         event.accept()
         
     def _on_audio_status(self, status):
         # QMediaPlayer.EndOfMedia fires once when a track finishes
         if status == QMediaPlayer.EndOfMedia:
             self.next_song()
+            
+    def cleanup_cache(self):
+        cache_path = Path(tempfile.gettempdir()) / "OsuRadioCache"
+        if cache_path.exists():
+            try:
+                shutil.rmtree(cache_path)
+                print("[Exit Cleanup] Cache folder deleted.")
+            except Exception as e:
+                print(f"[Exit Cleanup] Cache delete failed: {e}")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
