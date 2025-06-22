@@ -255,7 +255,7 @@ class PitchAdjustedPlayer:
             return 0
 
     def play(self, input_path: str, speed: float = 1.0, preserve_pitch: bool = True, start_ms: int = 0):
-        # Smart resume check: skip reprocessing if already loaded
+        # Smart resume check
         if (
             self.player.mediaStatus() == QMediaPlayer.LoadedMedia
             and self._last_path == input_path
@@ -271,27 +271,12 @@ class PitchAdjustedPlayer:
         self._last_path = input_path
         self.preserve_pitch = preserve_pitch
         self.playback_rate = speed
+        self.last_start_ms = start_ms  # ✅ Track for later use
 
         print(f"[Debug] Speed={speed}, PitchAdjust={not preserve_pitch}, Seek={start_ms}")
 
-        if preserve_pitch:
-            processed_file, _ = process_audio(input_path, speed=speed, adjust_pitch=True)
-            file_url = QUrl.fromLocalFile(str(processed_file))
-            self.player.setSource(file_url)
-            self.current_temp = Path(processed_file)
-        else:
-            file_url = QUrl.fromLocalFile(str(input_path))
-            self.player.setSource(file_url)
-            self.player.setPlaybackRate(speed)
-            self.current_temp = None
-
-        self.last_duration = self._get_wav_duration_ms(file_url.toLocalFile())
-
-        if start_ms > 0:
-            self.player.setPosition(start_ms)
-
-        self.player.play()
-        print(f"[QMediaPlayer] 🎵 Now playing: {file_url.toString()}")
+        # Save previous state
+        self.was_playing_before_seek = self.player.playbackState() == QMediaPlayer.PlayingState
 
         # Delete the last file if safe
         if self.last_temp and self.last_temp.exists() and self.last_temp != self.current_temp:
@@ -301,7 +286,32 @@ class PitchAdjustedPlayer:
             except Exception as e:
                 print(f"[Cleanup Error] Could not delete {self.last_temp}: {e}")
 
+        if preserve_pitch:
+            processed_file, _ = process_audio(input_path, speed=speed, adjust_pitch=True)
+            file_url = QUrl.fromLocalFile(str(processed_file))
+            self.player.setSource(file_url)
+            self.current_temp = Path(processed_file)
+
+            # Defer playback until media is ready
+            self.player.mediaStatusChanged.connect(self._start_after_load)
+        else:
+            file_url = QUrl.fromLocalFile(str(input_path))
+            self.player.setSource(file_url)
+            self.player.setPlaybackRate(speed)
+            self.player.setPosition(start_ms)
+            self.player.play()
+            print(f"[QMediaPlayer] 🎵 Now playing: {file_url.toString()}")
+            self.current_temp = None
+
         self.last_temp = self.current_temp
+        self.last_duration = self._get_wav_duration_ms(file_url.toLocalFile())
+        
+    def _start_after_load(self, status):
+        if status == QMediaPlayer.LoadedMedia:
+            self.player.setPosition(self.last_start_ms)
+            if self.was_playing_before_seek:
+                self.player.play()
+            self.player.mediaStatusChanged.disconnect(self._start_after_load)
 
     def stop(self):
         self.player.stop()
@@ -826,6 +836,13 @@ class SettingsDialog(QDialog):
         
 class MainWindow(QMainWindow):
     def __init__(self):  
+        cache_path = Path(tempfile.gettempdir()) / "OsuRadioCache"
+        if cache_path.exists():
+            try:
+                shutil.rmtree(cache_path)
+                print("[Startup Cleanup] ✅ Deleted leftover temp cache.")
+            except Exception as e:
+                print(f"[Startup Cleanup] ❌ Failed to delete cache: {e}")
         super().__init__()
         
         self.library = []
@@ -1591,16 +1608,24 @@ class MainWindow(QMainWindow):
         self.now_lbl.setText(f"{song['artist']} - {song['title']}")
        
     def toggle_play(self):
-        # Play if paused/stopped, pause if playing, and update icon.
-        state = self.audio.playbackState()
+        player = self.pitch_player.player
+        state = player.playbackState()
+
         if state == QMediaPlayer.PlayingState:
-            self.audio.pause()
+            player.pause()
+            self.playback_timer.stop()
+            self.is_playing = False
         else:
-            self.audio.play()
+            player.play()
+            self.playback_timer.start(1000)
+            self.is_playing = True
+
         self.update_play_pause_icon()
    
     def pause_song(self):
-        self.audio.pause()
+        self.pitch_player.player.pause()
+        self.is_playing = False
+        self.update_play_pause_icon()
 
     def play_song_at_index(self, index):
         self.current_index = index
@@ -1629,6 +1654,7 @@ class MainWindow(QMainWindow):
 
         # Set and play the media
         speed = float(self.speed_combo.currentText().replace("x", ""))
+        self.pitch_player.was_playing_before_seek = True
         self.pitch_player.play(str(path), speed=speed, preserve_pitch=self.preserve_pitch)
         self.current_duration = self.pitch_player.last_duration
         self.slider.setRange(0, self.current_duration)
@@ -1669,22 +1695,32 @@ class MainWindow(QMainWindow):
         path = get_audio_path(song)
         speed = float(self.speed_combo.currentText().replace("x", ""))
 
-        self._playback_start_time = monotonic() - (pos / 1000)
-        print(f"[Seek Debug] path: {path}, speed: {speed}, preserve_pitch: {self.preserve_pitch}, start: {pos}")
+        was_playing = self.pitch_player.player.playbackState() == QMediaPlayer.PlayingState
 
-        self.pitch_player.play(str(path), speed=speed, preserve_pitch=self.preserve_pitch, start_ms=pos)
-        self.current_duration = self.pitch_player.last_duration
-        self.slider.setRange(0, self.current_duration)
-        self.total_label.setText(self.format_time(self.current_duration))
+        # Adjust seek position if pitch is preserved
+        if self.preserve_pitch:
+            adjusted_pos = int(pos / speed)
+        else:
+            adjusted_pos = pos
+
+        self._playback_start_time = monotonic() - (pos / 1000)
+        print(f"[Seek Debug] path: {path}, speed: {speed}, preserve_pitch: {self.preserve_pitch}, start: {adjusted_pos}")
+
+        self.pitch_player.play(
+            str(path),
+            speed=speed,
+            preserve_pitch=self.preserve_pitch,
+            start_ms=adjusted_pos
+        )
+
+        if not was_playing:
+            self.pitch_player.player.pause()
+
+        # Update seek UI
         self.current_duration = self.pitch_player.last_duration
         self.slider.setRange(0, self.current_duration)
         self.slider.setValue(pos)
-
-        # Update seek label
-        current_time = pos
-        total_time = self.current_duration
-        self.elapsed_label.setText(self.format_time(current_time))
-        self.total_label.setText(self.format_time(total_time))
+        self.total_label.setText(self.format_time(self.current_duration))
 
     def open_settings(self):
         SettingsDialog(self).exec()
