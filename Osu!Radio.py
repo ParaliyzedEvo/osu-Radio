@@ -17,6 +17,7 @@ import ffmpeg
 import platform
 import atexit
 import wave
+import hashlib
 from datetime import datetime
 from dateutil import parser as date_parser
 from packaging import version
@@ -82,7 +83,7 @@ else:
     
 ICON_PATH = ASSETS_PATH / ICON_FILE
 
-# === FFmpeg bin setup ===
+# FFmpeg bin setup
 def get_ffmpeg_bin_path():
     base_dir = Path(__file__).resolve().parent / "ffmpeg_bin"
     system = platform.system().lower()
@@ -194,6 +195,8 @@ def get_audio_duration(file_path):
         print(f"Error getting duration: {e}")
         return None
 
+def _hash_path(path: Path):
+    return hashlib.md5(str(path.resolve()).encode("utf-8")).hexdigest()[:10]
 
 def process_audio(input_file, speed=1.0, adjust_pitch=False, cache_dir=None):
     input_path = Path(input_file)
@@ -201,9 +204,10 @@ def process_audio(input_file, speed=1.0, adjust_pitch=False, cache_dir=None):
         cache_dir = Path(tempfile.gettempdir()) / "OsuRadioCache"
     cache_dir.mkdir(exist_ok=True)
 
+    unique_id = _hash_path(input_path)
     base_name = input_path.stem
     suffix = f"{speed:.2f}x_pitch" if adjust_pitch else f"{speed:.2f}x"
-    output_file = cache_dir / f"{base_name}_{suffix}.wav"
+    output_file = cache_dir / f"{base_name}_{unique_id}_{suffix}.wav"
 
     if output_file.exists():
         return output_file, get_audio_duration(output_file)
@@ -238,7 +242,7 @@ class PitchAdjustedPlayer:
         self.current_temp = None
         self.last_temp = None
         self.playback_rate = 1.0
-        self.preserve_pitch = True  # default toggle state (set externally)
+        self.preserve_pitch = True
         
     def _get_wav_duration_ms(self, path):
         try:
@@ -254,7 +258,7 @@ class PitchAdjustedPlayer:
             print(f"[Duration Error] Could not get duration for {path}: {e}")
             return 0
 
-    def play(self, input_path: str, speed: float = 1.0, preserve_pitch: bool = True, start_ms: int = 0):
+    def play(self, input_path: str, speed: float = 1.0, preserve_pitch: bool = True, start_ms: int = 0, force_play=False):
         # Smart resume check
         if (
             self.player.mediaStatus() == QMediaPlayer.LoadedMedia
@@ -271,12 +275,12 @@ class PitchAdjustedPlayer:
         self._last_path = input_path
         self.preserve_pitch = preserve_pitch
         self.playback_rate = speed
-        self.last_start_ms = start_ms  # ✅ Track for later use
+        self.last_start_ms = start_ms
 
         print(f"[Debug] Speed={speed}, PitchAdjust={not preserve_pitch}, Seek={start_ms}")
 
         # Save previous state
-        self.was_playing_before_seek = self.player.playbackState() == QMediaPlayer.PlayingState
+        self.was_playing_before_seek = self.player.playbackState() == QMediaPlayer.PlayingState or force_play
 
         # Delete the last file if safe
         if self.last_temp and self.last_temp.exists() and self.last_temp != self.current_temp:
@@ -311,6 +315,8 @@ class PitchAdjustedPlayer:
             self.player.setPosition(self.last_start_ms)
             if self.was_playing_before_seek:
                 self.player.play()
+            else:
+                self.player.pause()
             self.player.mediaStatusChanged.disconnect(self._start_after_load)
 
     def stop(self):
@@ -721,7 +727,7 @@ class SettingsDialog(QDialog):
         self.video_checkbox = QCheckBox("Enable Background Video")
         self.autoplay_checkbox = QCheckBox("Autoplay on Startup")
         self.media_key_checkbox = QCheckBox("Enable Media Key Support")
-        self.pitch_checkbox = QCheckBox("Preserve Original Pitch")
+        self.pitch_checkbox = QCheckBox("Preserve Original Pitch (DT/NC)")
         self.prerelease_checkbox = QCheckBox("Include Pre-release Updates")
 
         self.light_mode_checkbox.setChecked(parent.light_mode)
@@ -1062,7 +1068,7 @@ class MainWindow(QMainWindow):
         self.slider.installEventFilter(self)
         self.slider.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.playback_timer = QTimer(self)
-        self.playback_timer.setInterval(1000)
+        self.playback_timer.setInterval(100)
         self.playback_timer.timeout.connect(self._tick_seekbar)
         self._playback_start_time = None
 
@@ -1262,10 +1268,16 @@ class MainWindow(QMainWindow):
         
         QTimer.singleShot(1000, lambda: self.check_updates())
         
+    def _update_elapsed_label(self, value):
+        if getattr(self, "_user_dragging", False) or self.is_playing:
+            self.elapsed_label.setText(self.format_time(value))
+        
     def _tick_seekbar(self):
         if self._playback_start_time is None:
             return
-        elapsed_ms = int((monotonic() - self._playback_start_time) * 1000)
+        speed = float(self.speed_combo.currentText().replace("x", ""))
+        elapsed_ms = int((monotonic() - self._playback_start_time) * 1000 * speed)
+        elapsed_ms = min(elapsed_ms, self.current_duration)
         if not getattr(self, "_user_dragging", False):
             self.slider.setValue(elapsed_ms)
             self.elapsed_label.setText(self.format_time(elapsed_ms))
@@ -1287,14 +1299,29 @@ class MainWindow(QMainWindow):
                 raise ValueError("Speed must be positive.")
 
             if abs(rate - self.pitch_player.playback_rate) < 0.01:
-                return  # No change, skip
+                return  # No meaningful change, skip
 
             self.playback_rate = rate
 
-            if not self.preserve_pitch:
+            if self.preserve_pitch:
+                # Use FFmpeg to reprocess the audio
+                song = self.queue[self.current_index]
+                path = get_audio_path(song)
+                self.pitch_player.play(
+                    str(path),
+                    speed=rate,
+                    preserve_pitch=True,
+                    start_ms=self.slider.value(),
+                    force_play=self.is_playing
+                )
+            else:
+                # Just change playback rate directly
                 self.pitch_player.player.setPlaybackRate(rate)
                 print(f"[Playback Speed] Set to {rate}x")
+                if self.is_playing:
+                    self.seek(self.slider.value())
 
+            # Update the dropdown UI
             default_speeds = ["0.5x", "0.75x", "1x", "1.25x", "1.5x", "2x"]
             self.speed_combo.blockSignals(True)
             self.speed_combo.clear()
@@ -1306,12 +1333,6 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Invalid Speed", "Enter a number above 0 (e.g., 1.25).")
             self.speed_combo.setEditText("1x")
             self.pitch_player.player.setPlaybackRate(1.0)
-            
-        if getattr(self, "is_playing", False):
-            self.seek(self.slider.value())
-            
-        if self.is_playing:
-            self.seek(self.slider.value())
         
     def _update_volume_label(self, v):
         self.volume_label.setText(f"{v}%")
@@ -1399,15 +1420,8 @@ class MainWindow(QMainWindow):
     def connect_slider_signals(self):
         # Link slider drag behavior and update preview time.
         self.slider.sliderPressed.connect(lambda: setattr(self, "_user_dragging", True))
-        self.slider.sliderReleased.connect(lambda: (
-            setattr(self, "_user_dragging", False),
-            self.seek(self.slider.value())
-        ))
-
-        self.slider.valueChanged.connect(lambda v: (
-            self.elapsed_label.setText(self.format_time(v))
-            if getattr(self, "_user_dragging", False) else None
-        ))
+        self.slider.sliderReleased.connect(lambda: (setattr(self, "_user_dragging", False), self.seek(self.slider.value())))
+        self.slider.valueChanged.connect(lambda v: self._update_elapsed_label(v))
         
     def update_position(self, pos):
         if not getattr(self, "_user_dragging", False):
@@ -1655,7 +1669,7 @@ class MainWindow(QMainWindow):
         # Set and play the media
         speed = float(self.speed_combo.currentText().replace("x", ""))
         self.pitch_player.was_playing_before_seek = True
-        self.pitch_player.play(str(path), speed=speed, preserve_pitch=self.preserve_pitch)
+        self.pitch_player.play(str(path), speed=speed, preserve_pitch=self.preserve_pitch, force_play=True)
         self.current_duration = self.pitch_player.last_duration
         self.slider.setRange(0, self.current_duration)
         self.total_label.setText(self.format_time(self.current_duration))
@@ -1687,6 +1701,13 @@ class MainWindow(QMainWindow):
         self.populate_list(self.queue)
         self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
         self.song_list.setCurrentRow(self.current_index)
+    
+    def _finalize_seek_ui(self, pos):
+        self.current_duration = self.pitch_player.last_duration
+        self.slider.setRange(0, self.current_duration)
+        self.slider.setValue(pos if pos <= self.current_duration else 0)
+        self.elapsed_label.setText(self.format_time(pos if pos <= self.current_duration else 0))
+        self.total_label.setText(self.format_time(self.current_duration))
 
     def seek(self, pos):
         print(f"[Seek] Jump to position {pos} ms")
@@ -1695,32 +1716,18 @@ class MainWindow(QMainWindow):
         path = get_audio_path(song)
         speed = float(self.speed_combo.currentText().replace("x", ""))
 
-        was_playing = self.pitch_player.player.playbackState() == QMediaPlayer.PlayingState
-
-        # Adjust seek position if pitch is preserved
         if self.preserve_pitch:
             adjusted_pos = int(pos / speed)
         else:
             adjusted_pos = pos
 
         self._playback_start_time = monotonic() - (pos / 1000)
-        print(f"[Seek Debug] path: {path}, speed: {speed}, preserve_pitch: {self.preserve_pitch}, start: {adjusted_pos}")
+        print(f"[Seek Debug] path: {path}, speed: {speed}, preserve_pitch: {self.preserve_pitch}, start: {pos}")
 
-        self.pitch_player.play(
-            str(path),
-            speed=speed,
-            preserve_pitch=self.preserve_pitch,
-            start_ms=adjusted_pos
-        )
+        safe_pos = min(pos, self.pitch_player.last_duration or pos)
+        self.pitch_player.play(str(path), speed=speed, preserve_pitch=self.preserve_pitch, start_ms=safe_pos, force_play=self.is_playing)
 
-        if not was_playing:
-            self.pitch_player.player.pause()
-
-        # Update seek UI
-        self.current_duration = self.pitch_player.last_duration
-        self.slider.setRange(0, self.current_duration)
-        self.slider.setValue(pos)
-        self.total_label.setText(self.format_time(self.current_duration))
+        QTimer.singleShot(1500, lambda: self._finalize_seek_ui(pos))
 
     def open_settings(self):
         SettingsDialog(self).exec()
