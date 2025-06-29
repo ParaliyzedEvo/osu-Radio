@@ -775,10 +775,12 @@ class SettingsDialog(QDialog):
             "640×360": (640, 360),
             "480×270": (480, 270),
         }
-        self.res_combo.addItems(self.resolutions)
+        self.res_combo.addItems(list(self.resolutions.keys()) + ["Custom Resolution"])
         current_res = f"{parent.width()}×{parent.height()}"
         if current_res in self.resolutions:
             self.res_combo.setCurrentText(current_res)
+        else:
+            self.res_combo.setCurrentText("Custom Resolution")
 
         res_layout = QHBoxLayout()
         res_layout.addWidget(QLabel("Resolution:"))
@@ -811,7 +813,11 @@ class SettingsDialog(QDialog):
         opacity = self.opacity_slider.value() / 100
         hue = self.hue_slider.value()
         res = self.res_combo.currentText()
-        w, h = self.resolutions.get(res, (854, 480))
+        if res == "Custom Resolution":
+            w, h = self.main.width(), self.main.height()
+        else:
+            w, h = self.resolutions.get(res, (854, 480))
+        allow_resizing = res == "Custom Resolution"
         video_on = self.video_checkbox.isChecked()
         autoplay = self.autoplay_checkbox.isChecked()
         media_keys = self.media_key_checkbox.isChecked()
@@ -821,7 +827,8 @@ class SettingsDialog(QDialog):
         was_prerelease = self.main.allow_prerelease
         self.main.apply_settings(
             folder, light, opacity, w, h, hue,
-            video_on, autoplay, media_keys, preserve_pitch, allow_prerelease
+            video_on, autoplay, media_keys, preserve_pitch,
+            allow_prerelease, allow_resizing
         )
 
         if was_prerelease != allow_prerelease:
@@ -861,8 +868,6 @@ class MainWindow(QMainWindow):
         geom = QGuiApplication.primaryScreen().availableGeometry()
         min_w, min_h = 480, int(480 / self.aspect_ratio)
         max_w, max_h = min(1920, geom.width()), min(1080, geom.height())
-        self.setMinimumSize(min_w, min_h)
-        self.setMaximumSize(max_w, max_h)
 
         # Load settings
         first_setup = not SETTINGS_FILE.exists()
@@ -891,15 +896,19 @@ class MainWindow(QMainWindow):
         self.was_prerelease     = settings.get("was_prerelease", False)
         self.skipped_versions   = settings.get("skipped_versions", [])
         res                     = settings.get("resolution", "854×480")
-        rw, rh = (854, 480)
-        if res and "×" in res:
+        self.resizable          = (res == "Custom Resolution")
+        if res == "Custom Resolution":
+            rw = settings.get("custom_width", 854)
+            rh = settings.get("custom_height", 480)
+            self.resizable = True
+        else:
             try:
                 rw, rh = map(int, res.split("×"))
             except:
-                pass
+                rw, rh = 854, 480
+            self.resizable = False
         w = max(min_w, min(rw, max_w))
         h = max(min_h, min(rh, max_h))
-        self.setFixedSize(w, h)
 
         if not self.osu_folder or not os.path.isdir(self.osu_folder):
             self.osu_folder = QFileDialog.getExistingDirectory(self, "Select osu! Songs Folder")
@@ -1242,10 +1251,43 @@ class MainWindow(QMainWindow):
         self.apply_settings(
             self.osu_folder, self.light_mode, self.ui_opacity,
             w, h, self.hue, self.video_enabled, self.autoplay,
-            self.media_keys_enabled, self.preserve_pitch, self.allow_prerelease
+            self.media_keys_enabled, self.preserve_pitch, self.allow_prerelease, 
+            allow_resizing=self.resizable
         )
         
         QTimer.singleShot(1000, lambda: self.check_updates())
+        QTimer.singleShot(0, self.apply_window_flags)
+        QTimer.singleShot(0, self._set_dynamic_max_size)
+        
+    def apply_window_flags(self):
+        if self.resizable:
+            self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            self.setMinimumSize(480, int(480 / self.aspect_ratio))
+            self._set_dynamic_max_size()
+            self.setWindowFlags(
+                Qt.Window |
+                Qt.CustomizeWindowHint |
+                Qt.WindowTitleHint |
+                Qt.WindowMinMaxButtonsHint |
+                Qt.WindowCloseButtonHint
+            )
+        else:
+            self.setMinimumSize(self.width(), self.height())
+            self.setMaximumSize(self.width(), self.height())
+            self.setWindowFlags(
+                Qt.Window |
+                Qt.CustomizeWindowHint |
+                Qt.WindowTitleHint |
+                Qt.WindowMinimizeButtonHint |
+                Qt.WindowCloseButtonHint
+            )
+        self.show()
+        
+    def _set_dynamic_max_size(self):
+        screen = QGuiApplication.primaryScreen()
+        if screen:
+            available = screen.availableGeometry()
+            self.setMaximumSize(available.width(), available.height())
         
     def _update_elapsed_label(self, value):
         if getattr(self, "_user_dragging", False) or self.is_playing:
@@ -1447,7 +1489,7 @@ class MainWindow(QMainWindow):
             self.bg_player.setPosition(0)
             self.bg_player.play()
 
-    def apply_settings(self, folder, light, opacity, w, h, hue, video_on, autoplay, media_keys, preserve_pitch, allow_prerelease):
+    def apply_settings(self, folder, light, opacity, w, h, hue, video_on, autoplay, media_keys, preserve_pitch, allow_prerelease, allow_resizing=False):
         if folder != self.osu_folder and os.path.isdir(folder):
             self.osu_folder = folder
             self.reload_songs()
@@ -1465,7 +1507,33 @@ class MainWindow(QMainWindow):
             self.update_media_key_listener()
         self.preserve_pitch = preserve_pitch
         self.allow_prerelease = allow_prerelease
-        self.setFixedSize(w, h)
+        if allow_resizing:
+            self.resizable = True
+            self.setMinimumSize(480, int(480 / self.aspect_ratio))
+            self._set_dynamic_max_size()
+            self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            self.setWindowFlags(
+                Qt.Window |
+                Qt.CustomizeWindowHint |
+                Qt.WindowTitleHint |
+                Qt.WindowMinMaxButtonsHint |
+                Qt.WindowCloseButtonHint
+            )
+            self.show()
+        else:
+            self.resizable = False
+            self.setMinimumSize(w, h)
+            self.setMaximumSize(w, h)
+            self.setWindowFlags(
+            Qt.Window |
+            Qt.CustomizeWindowHint |
+            Qt.WindowTitleHint |
+            Qt.WindowMinimizeButtonHint |
+            Qt.WindowCloseButtonHint
+        )
+            self.resize(w, h)
+            self.show()
+            
         self.save_user_settings()
 
     def _apply_ui_settings(self, light, opacity, w, h, hue):
@@ -1473,7 +1541,14 @@ class MainWindow(QMainWindow):
         self.apply_theme(light)
         self.ui_opacity = opacity
         self.ui_effect.setOpacity(opacity)
-        self.setFixedSize(w, h)
+        if self.resizable:
+            self.setMinimumSize(480, int(480 / self.aspect_ratio))
+            self._set_dynamic_max_size()
+            self.resize(w, h)
+        else:
+            self.setMinimumSize(w, h)
+            self.setMaximumSize(w, h)
+            
         self.hue = hue
         self.bg_widget.effect.setColor(QColor.fromHsv(hue, 255, 255))
         self.save_user_settings()
@@ -1790,6 +1865,8 @@ class MainWindow(QMainWindow):
             "allow_prerelease": False,
             "was_prerelease": False,
             "resolution": "854×480",
+            "custom_width": "null",
+            "custom_height": "null",
             "skipped_versions": [],
         }
         if SETTINGS_FILE.exists():
@@ -1816,7 +1893,9 @@ class MainWindow(QMainWindow):
             "preserve_pitch": self.preserve_pitch,
             "allow_prerelease": self.allow_prerelease,
             "was_prerelease": self.is_prerelease_version(__version__),
-            "resolution": f"{self.width()}×{self.height()}",
+            "resolution": "Custom Resolution" if self.resizable else f"{self.width()}×{self.height()}",
+            "custom_width": self.width() if self.resizable else None,
+            "custom_height": self.height() if self.resizable else None,
             "skipped_versions": self.skipped_versions,
         }
         try:
