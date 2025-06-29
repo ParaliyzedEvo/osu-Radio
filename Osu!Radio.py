@@ -1293,6 +1293,9 @@ class MainWindow(QMainWindow):
                     start_ms=self.slider.value(),
                     force_play=self.is_playing
                 )
+                self.current_duration = self.pitch_player.last_duration
+                self.slider.setRange(0, self.current_duration)
+                self.total_label.setText(self.format_time(self.current_duration))
             else:
                 # Just change playback rate directly
                 self.pitch_player.player.setPlaybackRate(rate)
