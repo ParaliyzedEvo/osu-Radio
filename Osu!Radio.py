@@ -97,17 +97,53 @@ def get_ffmpeg_bin_path():
         raise RuntimeError(f"Unsupported platform: {system}")
 
 ffmpeg_path = str(get_ffmpeg_bin_path())
+_original_popen = subprocess.Popen
 
-# Monkey-patch ffmpeg-python to use custom ffmpeg binary
-ffmpeg._run.FFmpeg = lambda *args, **kwargs: subprocess.Popen(
-    [ffmpeg_path, *args[1:]],
-    **kwargs
-)
+# Patch ffmpeg-python’s internal Popen to suppress terminal (for stream.run())
+def silent_popen(cmd, *args, **kwargs):
+    if sys.platform.startswith("win"):
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        kwargs["startupinfo"] = si
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    return _original_popen(cmd, *args, **kwargs)
 
-try:
-    out = subprocess.run(["ffmpeg", "-version"], capture_output=False, text=True, check=True)
-except Exception as e:
-    print("[Error] ffmpeg NOT found in PATH!", e)
+ffmpeg._run.Popen = silent_popen
+
+# Helper for silent subprocess.run settings
+def get_silent_subprocess_kwargs():
+    if sys.platform.startswith("win"):
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        return {
+            "startupinfo": si,
+            "creationflags": subprocess.CREATE_NO_WINDOW,
+        }
+    return {}
+    
+def silent_global_popen(*args, **kwargs):
+    if sys.platform.startswith("win"):
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        kwargs.setdefault("startupinfo", si)
+        kwargs.setdefault("creationflags", subprocess.CREATE_NO_WINDOW)
+    return _original_popen(*args, **kwargs)
+
+subprocess.Popen = silent_global_popen
+
+# Patch ffmpeg.run(...) to use subprocess.run with suppressed terminal
+def custom_run(*args, **kwargs):
+    cmd = [ffmpeg_path, *args[1:]]
+    subprocess_kwargs = {
+        "stdout": kwargs.get("stdout", subprocess.PIPE),
+        "stderr": kwargs.get("stderr", subprocess.PIPE),
+        "text": kwargs.get("text", False),
+        "check": kwargs.get("check", True),
+        **get_silent_subprocess_kwargs(),
+    }
+    return subprocess.run(cmd, **subprocess_kwargs)
+
+ffmpeg.run = custom_run
 
 # Utility functions
 def get_audio_path(song: dict) -> Path:
