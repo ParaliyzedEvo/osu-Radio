@@ -1,4 +1,4 @@
-__version__ = "1.7.0b3"
+__version__ = "1.7.0"
 
 import sys
 import os
@@ -85,14 +85,14 @@ ICON_PATH = ASSETS_PATH / ICON_FILE
 
 # FFmpeg bin setup
 def get_ffmpeg_bin_path():
-    base_dir = Path(__file__).resolve().parent / "ffmpeg_bin"
+    base = Path(__file__).resolve().parent / "ffmpeg_bin"
     system = platform.system().lower()
     if system == "windows":
-        return base_dir / "windows" / "bin" / "ffmpeg.exe"
+        return base / "windows" / "bin" / "ffmpeg.exe"
     elif system == "darwin":
-        return base_dir / "macos" / "ffmpeg"
+        return base / "macos" / "ffmpeg"
     elif system == "linux":
-        return base_dir / "linux" / "bin" / "ffmpeg"
+        return base / "linux" / "bin" / "ffmpeg"
     else:
         raise RuntimeError(f"Unsupported platform: {system}")
 
@@ -105,8 +105,7 @@ ffmpeg._run.FFmpeg = lambda *args, **kwargs: subprocess.Popen(
 )
 
 try:
-    out = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True, check=True)
-    print("[Debug] ffmpeg found:", out.stdout.splitlines()[0])
+    out = subprocess.run(["ffmpeg", "-version"], capture_output=False, text=True, check=True)
 except Exception as e:
     print("[Error] ffmpeg NOT found in PATH!", e)
 
@@ -276,8 +275,6 @@ class PitchAdjustedPlayer:
         self.preserve_pitch = preserve_pitch
         self.playback_rate = speed
         self.last_start_ms = start_ms
-
-        print(f"[Debug] Speed={speed}, PitchAdjust={not preserve_pitch}, Seek={start_ms}")
 
         # Save previous state
         self.was_playing_before_seek = self.player.playbackState() == QMediaPlayer.PlayingState or force_play
@@ -943,25 +940,7 @@ class MainWindow(QMainWindow):
                 self.skip_downgrade_for_now = True
 
         # Audio player
-        def get_embedded_ffmpeg_path():
-            base = os.path.abspath(os.path.join(os.path.dirname(__file__), "ffmpeg_bin"))
-            system = platform.system()
-
-            if system == "Windows":
-                return os.path.join(base, "ffmpeg", "windows", "bin", "ffmpeg.exe")
-            elif system == "Darwin":  # macOS
-                return os.path.join(base, "ffmpeg", "macos", "ffmpeg")
-            elif system == "Linux":
-                return os.path.join(base, "ffmpeg", "linux", "bin", "ffmpeg")
-            else:
-                raise RuntimeError(f"Unsupported platform: {system}")
         self.setup_media_players()
-        
-        #ffmpeg_path = get_embedded_ffmpeg_path()
-        #ffmpeg._ffmpeg_path = ffmpeg_path
-        #ffmpeg._probe = os.path.join(os.path.dirname(ffmpeg_path), "ffprobe" + (".exe" if platform.system() == "Windows" else ""))
-        #if platform.system() != "Windows":
-        #    os.chmod(ffmpeg_path, 0o755)
 
         # Central + stacking
         central = QWidget(self)
@@ -1710,7 +1689,6 @@ class MainWindow(QMainWindow):
         self.total_label.setText(self.format_time(self.current_duration))
 
     def seek(self, pos):
-        print(f"[Seek] Jump to position {pos} ms")
 
         song = self.queue[self.current_index]
         path = get_audio_path(song)
@@ -1722,7 +1700,6 @@ class MainWindow(QMainWindow):
             adjusted_pos = pos
 
         self._playback_start_time = monotonic() - (pos / 1000)
-        print(f"[Seek Debug] path: {path}, speed: {speed}, preserve_pitch: {self.preserve_pitch}, start: {pos}")
 
         safe_pos = min(pos, self.pitch_player.last_duration or pos)
         self.pitch_player.play(str(path), speed=speed, preserve_pitch=self.preserve_pitch, start_ms=safe_pos, force_play=self.is_playing)
