@@ -1,0 +1,1 @@
+print("\"Niger - Paraliyzed_evo\"")
