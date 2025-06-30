@@ -6,7 +6,6 @@ Please describe your changes and link any related issues.
 
 - [ ] Bug fix
 - [ ] New feature
-- [ ] Breaking change
 - [ ] Documentation update
 
 ### Assignee
