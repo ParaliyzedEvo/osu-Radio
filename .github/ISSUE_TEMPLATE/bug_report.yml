@@ -1,6 +1,6 @@
 name: Bug report
 description: Report a broken issue in osu!Radio.
-assignees: Paraliyzedevo
+assignees: ParaliyzedEvo
 body:
 
   - type: dropdown
