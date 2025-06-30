@@ -5,7 +5,7 @@ main_script = 'osu!Radio//main.py'
 a = Analysis(
     [main_script],
     pathex=[],
-    binaries=[],
+    binaries=[('dist/updater.exe','.')],
     datas=[('osu!Radio/Background Video', 'Background Video'),('osu!Radio/Osu!RadioIcon.ico','.'),('osu!Radio/ffmpeg_bin','ffmpeg_bin')],
     hiddenimports=['simplejson'],
     hookspath=[],
