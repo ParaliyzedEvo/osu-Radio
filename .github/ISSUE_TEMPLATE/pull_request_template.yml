@@ -1,0 +1,4 @@
+name: Pull request
+description: Pull request that might get merged into main (which is most of the time)
+labels: enchanments
+assignees: ParaliyzedEvo
