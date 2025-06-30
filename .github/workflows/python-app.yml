@@ -95,7 +95,8 @@ jobs:
       - name: Create .dmg installer (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          cp -r "Background Video" "dist/osu!Radio.app/Contents/Resources/"
+          cp -r "osu!Radio/Background Video" "dist/osu!Radio.app/Contents/Resources/"
+          cp -r "osu!Radio/ffmpeg_bin" "dist/osu!Radio.app/Contents/Resources/"
           create-dmg \
             --volname "osu!Radio Installer" \
             --volicon "dist/osu!Radio.app/Contents/Resources/Osu!RadioIcon.icns" \
@@ -123,12 +124,12 @@ jobs:
       - name: Package output (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
-          mkdir -p 'Osu!Radio'
-          cp -r 'dist/osu!Radio' 'Osu!Radio/'
-          cp -r 'osu!Radio/Background Video' 'Osu!Radio/'
-          cp -r 'osu!Radio/ffmpeg_bin' 'Osu!Radio/'
-          cp 'osu!Radio/Osu!RadioIcon.png' 'Osu!Radio/'
-          tar -czf 'osu!Radio.tar.gz' -C 'Osu!Radio' .
+          mkdir -p 'osu!Radio'
+          cp -r 'dist/osu!Radio' 'osu!Radio/'
+          cp -r 'osu!Radio/Background Video' 'osu!Radio/'
+          cp -r 'osu!Radio/ffmpeg_bin' 'osu!Radio/'
+          cp 'osu!Radio/Osu!RadioIcon.png' 'osu!Radio/'
+          tar -czf 'osu!Radio.tar.gz' -C 'osu!Radio' .
 
       - name: Copy macOS installers for upload
         if: matrix.os == 'macos-latest'
