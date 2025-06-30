@@ -53,6 +53,13 @@ jobs:
           fi
         shell: bash
         
+      - name: Install ffmpeg_bin
+        run: |
+          pip install gdown
+          gdown https://drive.google.com/uc?id=1lwGVfmVmpHLaUZ6geXXpFFnv7eUAj0gz -O ffmpeg.zip
+          unzip ffmpeg.zip -d osu!Radio
+          
+        
       # --- macOS Specific: Icon Conversion and Tools ---
       - name: Convert .png to .icns (macOS only)
         if: matrix.os == 'macos-latest'
