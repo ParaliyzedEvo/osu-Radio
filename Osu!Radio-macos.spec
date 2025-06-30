@@ -7,8 +7,11 @@ a = Analysis(
     pathex=[],
     binaries=[],
 <<<<<<< HEAD
+<<<<<<< HEAD
     datas=[('osu!Radio/Background Video', 'Background Video'),('osu!Radio/Osu!RadioIcon.ico','.'),('osu!Radio/ffmpeg_bin','ffmpeg_bin'),('osu!Radio/img','img')],
 =======
+=======
+>>>>>>> d9660da (Same thing as last commit)
     datas=[('osu!Radio/Background Video', 'Background Video'),('osu!Radio/Osu!RadioIcon.ico','.'),('osu!Radio/ffmpeg_bin','ffmpeg_bin')],
     hiddenimports=['simplejson'],
     excludes=[],

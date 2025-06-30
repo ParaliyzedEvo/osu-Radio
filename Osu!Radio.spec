@@ -6,11 +6,11 @@ a = Analysis(
     [main_script],
     pathex=[],
     binaries=[('dist/updater.exe','.')],
+<<<<<<< HEAD
     datas=[('osu!Radio/Background Video', 'Background Video'),('osu!Radio/Osu!RadioIcon.ico','.'),('osu!Radio/ffmpeg_bin','ffmpeg_bin'),('osu!Radio/img','img')],
+=======
+    datas=[('osu!Radio/Background Video', 'Background Video'),('osu!Radio/Osu!RadioIcon.ico','.'),('osu!Radio/ffmpeg_bin','ffmpeg_bin')],
     hiddenimports=['simplejson'],
-    hookspath=[],
-    hooksconfig={},
-    runtime_hooks=[],
     excludes=[],
     noarchive=False,
     optimize=0,
