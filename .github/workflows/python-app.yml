@@ -81,6 +81,11 @@ jobs:
           cp "$ICONSET/icon_1024x1024.png" "$ICONSET/icon_512x512@2x.png"
           iconutil -c icns "$ICONSET" -o "${ICON_NAME}.icns"
           rm -r "$ICONSET"
+          
+      - name: Build updater (Windows and Linux)
+        if: matrix.os != 'macos-latest'
+        run: |
+          pyinstaller updater.py --onefile
 
       - name: Build app (Windows)
         if: matrix.os == 'windows-latest'
@@ -135,6 +140,7 @@ jobs:
           cp -r 'dist/osu!Radio' 'osu!Radio-linux/'
           cp -r 'osu!Radio/Background Video' 'osu!Radio-linux/'
           cp -r 'osu!Radio/ffmpeg_bin' 'osu!Radio-linux/'
+          cp 'dist/updater' 'osu!Radio-linux
           cp 'osu!Radio/Osu!RadioIcon.png' 'osu!Radio-linux/'
           tar -czf 'osu!Radio.tar.gz' -C 'osu!Radio-linux' .
 

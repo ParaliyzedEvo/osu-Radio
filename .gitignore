@@ -180,4 +180,6 @@ dist/Osu!Radio/*.json
 *.exe
 updater.spec
 test/
+osu!Radio/*.json
+osu!Radio/*.db
 ffmpeg_bin/

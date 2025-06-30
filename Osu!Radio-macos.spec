@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 app_name = 'osu!Radio'
-main_script = 'osu!Radio/Osu!Radio.py'
+main_script = 'osu!Radio//main.py'
 
 a = Analysis(
     [main_script],
