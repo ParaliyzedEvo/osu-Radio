@@ -6,7 +6,7 @@ hiddenimports = collect_submodules('pynput') + ['simplejson']
 a = Analysis(
     ['osu!Radio/Osu!Radio.py'],
     pathex=[],
-    binaries=[('dist/updater','.')],
+    binaries=[],
     datas=[('osu!Radio/Background Video', 'Background Video'),('osu!Radio/Osu!RadioIcon.ico','.'),('osu!Radio/ffmpeg_bin','ffmpeg_bin'),('osu!Radio/img','img')],
     hiddenimports=hiddenimports,
     hookspath=[],
