@@ -64,6 +64,7 @@ jobs:
         if: matrix.os == 'macos-latest'
         run: |
           brew install imagemagick
+          cd "osu!Radio"
           ICON_NAME="Osu!RadioIcon"
           ICONSET="${ICON_NAME}.iconset"
           mkdir -p "$ICONSET"
@@ -80,11 +81,6 @@ jobs:
           cp "$ICONSET/icon_1024x1024.png" "$ICONSET/icon_512x512@2x.png"
           iconutil -c icns "$ICONSET" -o "${ICON_NAME}.icns"
           rm -r "$ICONSET"
-          
-      - name: Build updater (Windows and Linux)
-        if: matrix.os != 'macos-latest'
-        run: |
-          pyinstaller updater.py --onefile
 
       - name: Build app (Windows)
         if: matrix.os == 'windows-latest'
@@ -136,10 +132,9 @@ jobs:
         run: |
           mkdir -p 'Osu!Radio'
           cp -r 'dist/osu!Radio' 'Osu!Radio/'
-          cp -r 'Background Video' 'Osu!Radio/'
-          cp -r 'ffmpeg_bin' 'Osu!Radio/'
-          cp 'Osu!RadioIcon.png' 'Osu!Radio/'
-          cp 'dist/updater' 'Osu!Radio/'
+          cp -r 'osu!Radio/Background Video' 'Osu!Radio/'
+          cp -r 'osu!Radio/ffmpeg_bin' 'Osu!Radio/'
+          cp 'osu!Radio/Osu!RadioIcon.png' 'Osu!Radio/'
           tar -czf 'osu!Radio.tar.gz' -C 'Osu!Radio' .
 
       - name: Copy macOS installers for upload
