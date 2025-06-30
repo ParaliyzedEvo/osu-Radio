@@ -159,7 +159,7 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           draft: true
-          files: osu!Radio.tar.gz
+          files: osu!Radio-linux.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
