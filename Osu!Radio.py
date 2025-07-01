@@ -26,7 +26,7 @@ from PySide6.QtCore import (
     Qt, QUrl, QTimer, QThread, QMetaObject,
     QPropertyAnimation, QEasingCurve, Property,
     QSequentialAnimationGroup, QPauseAnimation, Signal,
-    QEvent
+    QEvent, QSize
 )
 from PySide6.QtGui import (
     QIcon, QPixmap, QPainter, QColor,
@@ -1193,10 +1193,11 @@ class MainWindow(QMainWindow):
         self.loop_btn.clicked.connect(self.toggle_loop_mode)
         bot.addWidget(self.loop_btn)
 
-        b_shuf = QPushButton("🔀")
+        b_shuf = QPushButton()
+        b_shuf.setIcon(QIcon("img/shuffle.svg"))
+        b_shuf.setIconSize(QSize(20, 20))
         b_shuf.setFixedHeight(24)
         b_shuf.setFixedWidth(34)
-        b_shuf.setStyleSheet("font-size: 15px;")
         b_shuf.clicked.connect(self.shuffle)
         bot.addWidget(b_shuf)
 
@@ -1736,18 +1737,26 @@ class MainWindow(QMainWindow):
 
     def update_loop_icon(self):
         if self.loop_mode == 0:
-            self.loop_btn.setIcon(self.style().standardIcon(QStyle.SP_BrowserStop))
+            icon = QIcon("img/repeat-off.svg")
+            self.loop_btn.setIcon(icon)
             self.loop_btn.setText("")
+            self.loop_btn.setIconSize(QSize(20, 20))
+            self.loop_btn.setFixedHeight(24)
+            self.loop_btn.setFixedWidth(34)
         elif self.loop_mode == 1:
-            self.loop_btn.setText("🔁")
-            self.loop_btn.setIcon(QIcon())
-            self.loop_btn.setStyleSheet("font-size: 15px;")
+            # Loop all
+            icon = QIcon("img/repeat.svg")
+            self.loop_btn.setIcon(icon)
+            self.loop_btn.setText("")
+            self.loop_btn.setIconSize(QSize(20, 20))
             self.loop_btn.setFixedHeight(24)
             self.loop_btn.setFixedWidth(34)
         elif self.loop_mode == 2:
-            self.loop_btn.setText("🔂")
-            self.loop_btn.setIcon(QIcon())
-            self.loop_btn.setStyleSheet("font-size: 15px;")
+            # Loop one
+            icon = QIcon("img/repeat-once.svg")
+            self.loop_btn.setIcon(icon)
+            self.loop_btn.setText("")
+            self.loop_btn.setIconSize(QSize(20, 20))
             self.loop_btn.setFixedHeight(24)
             self.loop_btn.setFixedWidth(34)
 
