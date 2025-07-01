@@ -1,4 +1,4 @@
-__version__ = "1.7.0"
+__version__ = "1.7.1"
 
 import sys
 import os
@@ -15,10 +15,8 @@ import subprocess
 import tempfile
 import ffmpeg
 import platform
-import atexit
 import wave
 import hashlib
-from datetime import datetime
 from dateutil import parser as date_parser
 from packaging import version
 from pathlib import Path
@@ -28,7 +26,7 @@ from PySide6.QtCore import (
     Qt, QUrl, QTimer, QThread, QMetaObject,
     QPropertyAnimation, QEasingCurve, Property,
     QSequentialAnimationGroup, QPauseAnimation, Signal,
-    QEvent, QIODevice, QBuffer, QByteArray, QObject, QFile
+    QEvent
 )
 from PySide6.QtGui import (
     QIcon, QPixmap, QPainter, QColor,
@@ -38,13 +36,13 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel, QFileDialog,
     QHBoxLayout, QVBoxLayout, QListWidget, QListWidgetItem,
-    QPushButton, QLineEdit, QSlider, QStyle, QStackedLayout,
+    QPushButton, QLineEdit, QSlider, QStyle,
     QDialog, QDialogButtonBox, QCheckBox, QComboBox,
     QGraphicsOpacityEffect, QGraphicsColorizeEffect,
-    QMenu, QGridLayout, QSplitter, QToolTip, QSizePolicy,
+    QMenu, QGridLayout, QToolTip, QSizePolicy,
     QMessageBox, QProgressDialog
 )
-from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QVideoSink, QAudioSink, QAudioFormat, QMediaDevices, QAudio
+from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QVideoSink, QAudioFormat, QMediaDevices
 
 # Paths
 IS_WINDOWS = os.name == "nt"
@@ -146,6 +144,12 @@ def custom_run(*args, **kwargs):
 ffmpeg.run = custom_run
 
 # Utility functions
+def show_modal(msgbox: QMessageBox):
+    msgbox.setWindowModality(Qt.ApplicationModal)
+    msgbox.raise_()
+    msgbox.activateWindow()
+    msgbox.exec()
+
 def get_audio_path(song: dict) -> Path:
     return Path(song["folder"]) / song["audio"]
     
@@ -252,7 +256,7 @@ def process_audio(input_file, speed=1.0, adjust_pitch=False, cache_dir=None):
     stream = ffmpeg.input(str(input_file))
 
     if speed == 1.0:
-        stream.output(str(output_file), format='wav', acodec="pcm_s16le", ac=2, ar=44100).run(overwrite_output=True)
+        stream.output(str(output_file), format='wav', acodec="pcm_s16le", ac=2, ar=44100).run(overwrite_output=True, quiet=True)
     else:
         if adjust_pitch:
             remaining = speed
@@ -264,7 +268,7 @@ def process_audio(input_file, speed=1.0, adjust_pitch=False, cache_dir=None):
         else:
             stream = stream.filter('rubberband', tempo=speed)
 
-        stream.output(str(output_file), acodec="pcm_s16le", ac=2, ar=44100).run(overwrite_output=True)
+        stream.output(str(output_file), acodec="pcm_s16le", ac=2, ar=44100).run(overwrite_output=True, quiet=True)
 
     return output_file, get_audio_duration(output_file)
         
@@ -278,7 +282,13 @@ class PitchAdjustedPlayer:
         self.last_temp = None
         self.playback_rate = 1.0
         self.preserve_pitch = True
-        
+
+        self.last_start_ms = 0
+        self.was_playing_before_seek = False
+        self._pending_play = False
+
+        self.player.mediaStatusChanged.connect(self._start_after_load)
+
     def _get_wav_duration_ms(self, path):
         try:
             if path.endswith(".wav"):
@@ -294,7 +304,6 @@ class PitchAdjustedPlayer:
             return 0
 
     def play(self, input_path: str, speed: float = 1.0, preserve_pitch: bool = True, start_ms: int = 0, force_play=False):
-        # Smart resume check
         if (
             self.player.mediaStatus() == QMediaPlayer.LoadedMedia
             and self._last_path == input_path
@@ -311,11 +320,8 @@ class PitchAdjustedPlayer:
         self.preserve_pitch = preserve_pitch
         self.playback_rate = speed
         self.last_start_ms = start_ms
-
-        # Save previous state
         self.was_playing_before_seek = self.player.playbackState() == QMediaPlayer.PlayingState or force_play
 
-        # Delete the last file if safe
         if self.last_temp and self.last_temp.exists() and self.last_temp != self.current_temp:
             try:
                 os.remove(self.last_temp)
@@ -325,12 +331,10 @@ class PitchAdjustedPlayer:
 
         if preserve_pitch:
             processed_file, _ = process_audio(input_path, speed=speed, adjust_pitch=True)
+            self.current_temp = Path(processed_file)
             file_url = QUrl.fromLocalFile(str(processed_file))
             self.player.setSource(file_url)
-            self.current_temp = Path(processed_file)
-
-            # Defer playback until media is ready
-            self.player.mediaStatusChanged.connect(self._start_after_load)
+            self._pending_play = True  # This triggers _start_after_load
         else:
             file_url = QUrl.fromLocalFile(str(input_path))
             self.player.setSource(file_url)
@@ -339,32 +343,50 @@ class PitchAdjustedPlayer:
             self.player.play()
             print(f"[QMediaPlayer] 🎵 Now playing: {file_url.toString()}")
             self.current_temp = None
+            self._pending_play = False
 
         self.last_temp = self.current_temp
         self.last_duration = self._get_wav_duration_ms(file_url.toLocalFile())
-        
+    
+    def _delayed_start(self):
+        if self.was_playing_before_seek:
+            self.player.play()
+        else:
+            self.player.pause()
+        self._pending_play = False
+
     def _start_after_load(self, status):
-        if status == QMediaPlayer.LoadedMedia:
+        if status == QMediaPlayer.LoadedMedia and self._pending_play:
+            print("[PitchPlayer] Media loaded, setting position")
             self.player.setPosition(self.last_start_ms)
-            if self.was_playing_before_seek:
-                self.player.play()
-            else:
-                self.player.pause()
-            self.player.mediaStatusChanged.disconnect(self._start_after_load)
+            QTimer.singleShot(150, self._check_audio_after_load)
+
+    def _check_audio_after_load(self):
+        if self.was_playing_before_seek:
+            self.player.play()
+        else:
+            self.player.pause()
+
+        # Delay again to verify audio routing
+        QTimer.singleShot(500, self._verify_audio_available)
+
+    def _verify_audio_available(self):
+        if not self.player.isAvailable():
+            print("[PitchPlayer] No audio detected after load — retrying playback")
+            self.player.setPosition(self.last_start_ms)
+            self.player.play()
 
     def stop(self):
         self.player.stop()
         if self.current_temp and os.path.exists(self.current_temp):
-            # Avoid deleting if it's still the current one in use
             if self.current_temp != self.last_temp:
                 try:
                     os.remove(self.current_temp)
                     print(f"[Stop] Deleted current temp: {self.current_temp}")
                 except Exception as e:
                     print(f"[Stop] Failed to delete {self.current_temp}: {e}")
-                    
         self.current_temp = None
-        
+
 class OsuParser:
     @staticmethod
     def parse(path: str) -> dict:
@@ -461,7 +483,7 @@ def download_and_install_update(assets, latest_version, skipped_versions, settin
     update_btn = msg.addButton("Update Now", QMessageBox.AcceptRole)
     remind_btn = msg.addButton("Remind Me Later", QMessageBox.RejectRole)
     skip_btn = msg.addButton("Skip This Version", QMessageBox.DestructiveRole)
-    msg.exec()
+    show_modal(msg)
 
     if msg.clickedButton() == skip_btn:
         if latest_version not in skipped_versions:
@@ -545,12 +567,13 @@ def download_and_install_update(assets, latest_version, skipped_versions, settin
         QMessageBox.warning(None, "Update Failed", "Could not find osu!Radio.exe in the extracted files.")
         return
 
-    ret = QMessageBox.information(
-        None,
-        "Restarting",
-        "osu!Radio will now restart with the update applied.",
-        QMessageBox.Ok
-    )
+    msg = QMessageBox()
+    msg.setIcon(QMessageBox.Information)
+    msg.setWindowTitle("Restarting")
+    msg.setText("osu!Radio will now restart with the update applied.")
+    msg.setStandardButtons(QMessageBox.Ok)
+    show_modal(msg)
+    ret = msg.result()
 
     if ret == QMessageBox.Ok:
         if getattr(sys, 'frozen', False):
@@ -963,13 +986,14 @@ class MainWindow(QMainWindow):
             and not self.downgrade_prompted
         ):
             self.downgrade_prompted = True
-            choice = QMessageBox.question(
-                self,
-                "Return to Stable?",
-                "You're currently on a pre-release build, but pre-release updates have been disabled.\n\n"
-                "Would you like to return to the latest stable version?",
-                QMessageBox.Yes | QMessageBox.No
-            )
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Question)
+            msg.setWindowTitle("Return to Stable?")
+            msg.setText("You're currently on a pre-release build, but pre-release updates have been disabled.\n\n"
+                        "Would you like to return to the latest stable version?")
+            msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            show_modal(msg)
+            choice = msg.result()
             if choice == QMessageBox.Yes:
                 latest_version, assets = check_for_update(
                     current_version=__version__,
@@ -986,6 +1010,7 @@ class MainWindow(QMainWindow):
 
         # Audio player
         self.setup_media_players()
+        self.is_playing = False
 
         # Central + stacking
         central = QWidget(self)
@@ -1251,11 +1276,13 @@ class MainWindow(QMainWindow):
             self.reload_songs()
         else:
             print("[startup] ⚠️ No cache found — will prompt for rescan.")
-            prompt = QMessageBox.question(
-                self, "Cache Missing",
-                "No song cache was found.\nWould you like to scan your osu! songs folder?",
-                QMessageBox.Yes | QMessageBox.No
-            )
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Question)
+            msg.setWindowTitle("Cache Missing")
+            msg.setText("No song cache was found.\nWould you like to scan your osu! songs folder?")
+            msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            show_modal(msg)
+            prompt = msg.result()
             if prompt == QMessageBox.Yes:
                 json_path = BASE_PATH / "library_cache.json"
                 if json_path.exists():
@@ -1295,6 +1322,14 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self.apply_window_flags)
         QTimer.singleShot(0, self._set_dynamic_max_size)
         
+    def focusInEvent(self, event):
+        super().focusInEvent(event)
+        player = self.pitch_player.player
+        if player.playbackState() == QMediaPlayer.PlayingState:
+            if not player.isAvailable():
+                print("[MainWindow] Focus regained — audio unavailable, restarting playback")
+                self.seek(self.slider.value())
+        
     def apply_window_flags(self):
         if self.resizable:
             self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -1330,6 +1365,13 @@ class MainWindow(QMainWindow):
             self.elapsed_label.setText(self.format_time(value))
         
     def _tick_seekbar(self):
+        player = self.pitch_player.player
+        if (
+            player.playbackState() == QMediaPlayer.PlayingState
+            and (not player.isAvailable() or not player.isAvailable())
+        ):
+            print("[Tick] Detected silent playback with pitch adjustment — restarting audio")
+            self.seek(self.slider.value())
         if self._playback_start_time is None:
             return
         speed = float(self.speed_combo.currentText().replace("x", ""))
@@ -1414,12 +1456,13 @@ class MainWindow(QMainWindow):
 
         # Pre-release downgrade offer
         if manual and not self.allow_prerelease and self.is_prerelease_version(current_version):
-            choice = QMessageBox.question(
-                self,
-                "Stable Release Available?",
-                "You're currently on a pre-release build. Would you like to return to the latest stable version?",
-                QMessageBox.Yes | QMessageBox.No
-            )
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Question)
+            msg.setWindowTitle("Stable Release Available?")
+            msg.setText("You're currently on a pre-release build. Would you like to return to the latest stable version?")
+            msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            show_modal(msg)
+            choice = msg.result()
             if choice == QMessageBox.Yes:
                 latest_version, assets = check_for_update(
                     current_version=current_version,
@@ -1775,7 +1818,7 @@ class MainWindow(QMainWindow):
 
     def next_song(self):
         if self.loop_mode == 2:  # Loop single
-            self.play_song_at_index(self.current_index)
+            QTimer.singleShot(0, lambda: self.play_song_at_index(self.current_index))
         else:
             nxt = self.current_index + 1
             if nxt >= len(self.queue):
@@ -1859,13 +1902,14 @@ class MainWindow(QMainWindow):
 
         # Confirmation if closed
         def handle_close(ev):
-            reply = QMessageBox.question(
-                self,
-                "Cancel Beatmap Scan?",
-                "Are you sure you want to cancel scanning for beatmaps?\n\n"
-                "To run it again, click Reload Maps in the top right.",
-                QMessageBox.Yes | QMessageBox.No
-            )
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Question)
+            msg.setWindowTitle("Cancel Beatmap Scan?")
+            msg.setText("Are you sure you want to cancel scanning for beatmaps?\n\n"
+                        "To run it again, click Reload Maps in the top right.")
+            msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            show_modal(msg)
+            reply = msg.result()
             if reply == QMessageBox.Yes:
                 self._progress_user_closed = True
                 if hasattr(self, "_scanner") and self._scanner.isRunning():
