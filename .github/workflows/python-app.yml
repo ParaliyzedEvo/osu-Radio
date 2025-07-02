@@ -107,6 +107,7 @@ jobs:
         run: |
           cp -r "Background Video" "dist/osu!Radio.app/Contents/Resources/"
           cp -r "ffmpeg_bin" "dist/osu!Radio.app/Contents/Resources/"
+          cp -r "img" "dist/osu!Radio.app/Contents/Resources/"
           create-dmg \
             --volname "osu!Radio Installer" \
             --volicon "dist/osu!Radio.app/Contents/Resources/Osu!RadioIcon.icns" \
@@ -123,7 +124,7 @@ jobs:
           pkgbuild \
             --root dist/osu!Radio.app \
             --identifier com.paraliyzedevo.osuradio \
-            --version 1.7.1 \
+            --version 1.8.0 \
             --install-location /Applications \
             dist/osu!Radio.pkg
 
@@ -138,6 +139,7 @@ jobs:
           cp -r 'dist/osu!Radio' 'Osu!Radio/'
           cp -r 'Background Video' 'Osu!Radio/'
           cp -r 'ffmpeg_bin' 'Osu!Radio/'
+          cp -r 'img' 'Osu!Radio'
           cp 'Osu!RadioIcon.png' 'Osu!Radio/'
           cp 'dist/updater' 'Osu!Radio/'
           tar -czf 'osu!Radio.tar.gz' -C 'Osu!Radio' .
