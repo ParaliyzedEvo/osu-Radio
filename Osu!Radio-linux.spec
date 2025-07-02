@@ -7,7 +7,7 @@ a = Analysis(
     ['Osu!Radio.py'],
     pathex=[],
     binaries=[('dist/updater','.')],
-    datas=[('Background Video', 'Background Video'),('Osu!RadioIcon.ico','.'),('ffmpeg_bin','ffmpeg_bin')],
+    datas=[('Background Video', 'Background Video'),('Osu!RadioIcon.ico','.'),('ffmpeg_bin','ffmpeg_bin'),('img','img')],
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},

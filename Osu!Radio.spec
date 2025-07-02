@@ -6,7 +6,7 @@ a = Analysis(
     [main_script],
     pathex=[],
     binaries=[('dist/updater.exe','.')],
-    datas=[('Background Video', 'Background Video'),('Osu!RadioIcon.ico','.'),('ffmpeg_bin','ffmpeg_bin')],
+    datas=[('Background Video', 'Background Video'),('Osu!RadioIcon.ico','.'),('ffmpeg_bin','ffmpeg_bin'),('img','img')],
     hiddenimports=['simplejson'],
     hookspath=[],
     hooksconfig={},
