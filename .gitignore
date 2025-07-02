@@ -182,5 +182,5 @@ updater.spec
 test/
 osu!Radio/*.json
 osu!Radio/*.db
-osu!Radio/ffmpeg_bin/
+osu!Radio/ffmpeg_bin/*
 ffmpeg_bin/
