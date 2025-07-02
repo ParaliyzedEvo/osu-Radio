@@ -140,7 +140,7 @@ jobs:
           cp -r 'dist/osu!Radio' 'osu!Radio-linux/'
           cp -r 'osu!Radio/Background Video' 'osu!Radio-linux/'
           cp -r 'osu!Radio/ffmpeg_bin' 'osu!Radio-linux/'
-          cp 'dist/updater' 'osu!Radio-linux
+          cp 'dist/updater' 'osu!Radio-linux'
           cp 'osu!Radio/Osu!RadioIcon.png' 'osu!Radio-linux/'
           tar -czf 'osu!Radio.tar.gz' -C 'osu!Radio-linux' .
 
