@@ -57,7 +57,7 @@ jobs:
         run: |
           pip install gdown
           gdown https://drive.google.com/uc?id=1lwGVfmVmpHLaUZ6geXXpFFnv7eUAj0gz -O ffmpeg_bin.zip
-          unzip ffmpeg_bin.zip -d ffmpeg_bin
+          unzip ffmpeg_bin.zip -d osu!Radio/ffmpeg_bin
         
       # --- macOS Specific: Icon Conversion and Tools ---
       - name: Convert .png to .icns (macOS only)
