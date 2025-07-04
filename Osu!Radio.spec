@@ -6,13 +6,7 @@ a = Analysis(
     [main_script],
     pathex=[],
     binaries=[('dist/updater.exe','.')],
-<<<<<<< HEAD
-<<<<<<< HEAD
     datas=[('osu!Radio/Background Video', 'Background Video'),('osu!Radio/Osu!RadioIcon.ico','.'),('osu!Radio/ffmpeg_bin','ffmpeg_bin'),('osu!Radio/img','img')],
-=======
-=======
->>>>>>> 19f6f5d (Same thing as last commit)
-    datas=[('osu!Radio/Background Video', 'Background Video'),('osu!Radio/Osu!RadioIcon.ico','.'),('osu!Radio/ffmpeg_bin','ffmpeg_bin')],
     hiddenimports=['simplejson'],
     excludes=[],
     noarchive=False,
