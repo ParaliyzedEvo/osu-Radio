@@ -83,6 +83,7 @@ else:
     ICON_FILE = "Osu!RadioIcon.png"  # fallback
     
 ICON_PATH = ASSETS_PATH / ICON_FILE
+IMG_PATH = ASSETS_PATH / "img"
 
 # FFmpeg bin setup
 def get_ffmpeg_bin_path():
@@ -1203,7 +1204,7 @@ class MainWindow(QMainWindow):
         bot.addWidget(self.loop_btn)
 
         b_shuf = QPushButton()
-        b_shuf.setIcon(QIcon("img/shuffle.svg"))
+        b_shuf.setIcon(QIcon(str(IMG_PATH / "shuffle.svg")))
         b_shuf.setIconSize(QSize(20, 20))
         b_shuf.setFixedHeight(24)
         b_shuf.setFixedWidth(34)
@@ -1957,7 +1958,7 @@ class MainWindow(QMainWindow):
 
     def update_loop_icon(self):
         if self.loop_mode == 0:
-            icon = QIcon("img/repeat-off.svg")
+            icon = QIcon(str(IMG_PATH / "repeat-off.svg"))
             self.loop_btn.setIcon(icon)
             self.loop_btn.setText("")
             self.loop_btn.setIconSize(QSize(20, 20))
@@ -1965,7 +1966,7 @@ class MainWindow(QMainWindow):
             self.loop_btn.setFixedWidth(34)
         elif self.loop_mode == 1:
             # Loop all
-            icon = QIcon("img/repeat.svg")
+            icon = QIcon(str(IMG_PATH / "repeat.svg"))
             self.loop_btn.setIcon(icon)
             self.loop_btn.setText("")
             self.loop_btn.setIconSize(QSize(20, 20))
@@ -1973,7 +1974,7 @@ class MainWindow(QMainWindow):
             self.loop_btn.setFixedWidth(34)
         elif self.loop_mode == 2:
             # Loop one
-            icon = QIcon("img/repeat-once.svg")
+            icon = QIcon(str(IMG_PATH / "repeat-once.svg"))
             self.loop_btn.setIcon(icon)
             self.loop_btn.setText("")
             self.loop_btn.setIconSize(QSize(20, 20))
