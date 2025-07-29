@@ -1,16 +1,13 @@
 # -*- mode: python ; coding: utf-8 -*-
 app_name = 'osu!Radio'
-main_script = 'Osu!Radio.py'
+main_script = 'osu!Radio//main.py'
 
 a = Analysis(
     [main_script],
     pathex=[],
     binaries=[],
-    datas=[('Background Video', 'Background Video'),('Osu!RadioIcon.ico','.'),('ffmpeg_bin','ffmpeg_bin'),('img','img')],
+    datas=[('osu!Radio/Background Video', 'Background Video'),('osu!Radio/Osu!RadioIcon.ico','.'),('osu!Radio/ffmpeg_bin','ffmpeg_bin'),('osu!Radio/img','img')],
     hiddenimports=['simplejson'],
-    hookspath=[],
-    hooksconfig={},
-    runtime_hooks=[],
     excludes=[],
     noarchive=False,
     optimize=0,
@@ -35,7 +32,7 @@ exe = EXE(
 app = BUNDLE(
     exe,
     name='osu!Radio' + '.app',
-    icon='Osu!RadioIcon.icns',
+    icon='osu!Radio/Osu!RadioIcon.icns',
     bundle_identifier='com.paraliyzedevo.osuradio',
     info_plist={
         'CFBundleName': 'osu!Radio',
