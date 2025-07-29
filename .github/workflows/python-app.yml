@@ -57,13 +57,14 @@ jobs:
         run: |
           pip install gdown
           gdown https://drive.google.com/uc?id=1lwGVfmVmpHLaUZ6geXXpFFnv7eUAj0gz -O ffmpeg_bin.zip
-          unzip ffmpeg_bin.zip -d ffmpeg_bin
+          unzip ffmpeg_bin.zip -d osu!Radio/ffmpeg_bin
         
       # --- macOS Specific: Icon Conversion and Tools ---
       - name: Convert .png to .icns (macOS only)
         if: matrix.os == 'macos-latest'
         run: |
           brew install imagemagick
+          cd "osu!Radio"
           ICON_NAME="Osu!RadioIcon"
           ICONSET="${ICON_NAME}.iconset"
           mkdir -p "$ICONSET"
@@ -105,9 +106,9 @@ jobs:
       - name: Create .dmg installer (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          cp -r "Background Video" "dist/osu!Radio.app/Contents/Resources/"
-          cp -r "ffmpeg_bin" "dist/osu!Radio.app/Contents/Resources/"
-          cp -r "img" "dist/osu!Radio.app/Contents/Resources/"
+          cp -r "osu!Radio/Background Video" "dist/osu!Radio.app/Contents/Resources/"
+          cp -r "osu!Radio/ffmpeg_bin" "dist/osu!Radio.app/Contents/Resources/"
+          cp -r "osu!Radio/img" "dist/osu!Radio.app/Contents/Resources/"
           create-dmg \
             --volname "osu!Radio Installer" \
             --volicon "dist/osu!Radio.app/Contents/Resources/Osu!RadioIcon.icns" \
@@ -124,7 +125,7 @@ jobs:
           pkgbuild \
             --root dist/osu!Radio.app \
             --identifier com.paraliyzedevo.osuradio \
-            --version 1.8.0 \
+            --version 1.9.0 \
             --install-location /Applications \
             dist/osu!Radio.pkg
 
@@ -135,14 +136,14 @@ jobs:
       - name: Package output (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
-          mkdir -p 'Osu!Radio'
-          cp -r 'dist/osu!Radio' 'Osu!Radio/'
-          cp -r 'Background Video' 'Osu!Radio/'
-          cp -r 'ffmpeg_bin' 'Osu!Radio/'
-          cp -r 'img' 'Osu!Radio'
-          cp 'Osu!RadioIcon.png' 'Osu!Radio/'
-          cp 'dist/updater' 'Osu!Radio/'
-          tar -czf 'osu!Radio.tar.gz' -C 'Osu!Radio' .
+          mkdir -p 'osu!Radio-linux'
+          cp -r 'dist/osu!Radio' 'osu!Radio-linux/'
+          cp -r 'osu!Radio/Background Video' 'osu!Radio-linux/'
+          cp -r 'osu!Radio/ffmpeg_bin' 'osu!Radio-linux/'
+          cp -r 'osu!Radio/img' 'osu!Radio-linux/'
+          cp 'dist/updater' 'osu!Radio-linux'
+          cp 'osu!Radio/Osu!RadioIcon.png' 'osu!Radio-linux/'
+          tar -czf 'osu!Radio.tar.gz' -C 'osu!Radio-linux' .
 
       - name: Copy macOS installers for upload
         if: matrix.os == 'macos-latest'
