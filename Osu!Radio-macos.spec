@@ -32,7 +32,7 @@ exe = EXE(
 app = BUNDLE(
     exe,
     name='osu!Radio' + '.app',
-    icon='osu!Radio/Osu!RadioIcon.icns',
+    icon='osuRadio/Osu!RadioIcon.icns',
     bundle_identifier='com.paraliyzedevo.osuradio',
     info_plist={
         'CFBundleName': 'osu!Radio',
