@@ -2308,11 +2308,9 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 print(f"[Exit Cleanup] Cache delete failed: {e}")
 
-if __name__ == "__main__":
+def run_app():
+    import sys
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()
-    
-    window.update_media_key_listener()
-
     sys.exit(app.exec())

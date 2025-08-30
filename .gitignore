@@ -181,4 +181,4 @@ dist/Osu!Radio/*.json
 updater.spec
 test/
 ffmpeg_bin/
-osu!Radio/custom_songs
+osuRadio/custom_songs

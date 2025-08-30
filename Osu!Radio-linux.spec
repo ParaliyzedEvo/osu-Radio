@@ -4,10 +4,10 @@ from PyInstaller.utils.hooks import collect_submodules
 hiddenimports = collect_submodules('pynput') + ['simplejson']
 
 a = Analysis(
-    ['osu!Radio//main.py'],
+    ['osuRadio//main.py'],
     pathex=[],
     binaries=[('dist/updater','.')],
-    datas=[('osu!Radio/Background Video', 'Background Video'),('osu!Radio/Osu!RadioIcon.ico','.'),('osu!Radio/ffmpeg_bin','ffmpeg_bin'),('osu!Radio/img','img')],
+    datas=[('osuRadio/Background Video', 'Background Video'),('osuRadio/Osu!RadioIcon.ico','.'),('osuRadio/ffmpeg_bin','ffmpeg_bin'),('osuRadio/img','img')],
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
@@ -32,5 +32,5 @@ exe = EXE(
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
-	icon="osu!Radio/Osu!RadioIcon.png"
+	icon="osuRadio/Osu!RadioIcon.png"
 )

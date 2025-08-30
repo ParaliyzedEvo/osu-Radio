@@ -1,12 +1,12 @@
 # -*- mode: python ; coding: utf-8 -*-
 app_name = 'osu!Radio'
-main_script = 'osu!Radio//main.py'
+main_script = 'osuRadio//main.py'
 
 a = Analysis(
     [main_script],
     pathex=[],
     binaries=[],
-    datas=[('osu!Radio/Background Video', 'Background Video'),('osu!Radio/Osu!RadioIcon.ico','.'),('osu!Radio/ffmpeg_bin','ffmpeg_bin'),('osu!Radio/img','img')],
+    datas=[('osuRadio/Background Video', 'Background Video'),('osuRadio/Osu!RadioIcon.ico','.'),('osuRadio/ffmpeg_bin','ffmpeg_bin'),('osuRadio/img','img')],
     hiddenimports=['simplejson'],
     excludes=[],
     noarchive=False,
