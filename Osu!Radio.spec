@@ -1,16 +1,13 @@
 # -*- mode: python ; coding: utf-8 -*-
 app_name = 'osu!Radio'
-main_script = 'Osu!Radio.py'
+main_script = 'osuRadio//main.py'
 
 a = Analysis(
     [main_script],
     pathex=[],
     binaries=[('dist/updater.exe','.')],
-    datas=[('Background Video', 'Background Video'),('Osu!RadioIcon.ico','.'),('ffmpeg_bin','ffmpeg_bin'),('img','img')],
+    datas=[('osuRadio/Background Video', 'Background Video'),('osuRadio/Osu!RadioIcon.ico','.'),('osuRadio/ffmpeg_bin','ffmpeg_bin'),('osuRadio/img','img')],
     hiddenimports=['simplejson'],
-    hookspath=[],
-    hooksconfig={},
-    runtime_hooks=[],
     excludes=[],
     noarchive=False,
     optimize=0,
@@ -29,7 +26,7 @@ exe = EXE(
     strip=False,
     upx=True,
     console=False,
-    icon='Osu!RadioIcon.ico',
+    icon='osuRadio/Osu!RadioIcon.ico',
 )
 
 coll = COLLECT(
