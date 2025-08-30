@@ -2,6 +2,8 @@
 
 Me and ThunderBirdo are now collaborating in this repo to make osu!Radio V2!
 
+**THIS IS AN ARCHIVE OF MY OLD CODE JS INCASE IMMA NEED IT, MAIN BRANCH IS [HERE](https://github.com/ParaliyzedEvo/osu-Radio/tree/main)**
+
 **ALL PLATFORMS SUPPORTED**
 
 **[ROADMAP](https://github.com/ParaliyzedEvo/osu-Radio/wiki)**
