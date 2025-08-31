@@ -150,32 +150,55 @@ jobs:
         run: |
           cp "dist/osu!Radio.pkg" "osu!Radio.pkg"
 
-      - name: Upload Release Asset (Windows)
+      - name: Upload build artifacts (Windows)
         if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: osu!Radio-windows
+          path: osu!Radio-windows.zip
+
+      - name: Upload build artifacts (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: osu!Radio-linux
+          path: osu!Radio.tar.gz
+
+      - name: Upload build artifacts (macOS)
+        if: matrix.os == 'macos-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: osu!Radio-macos
+          path: |
+            osu!Radio.pkg
+            osu!Radio.dmg
+
+      - name: Upload Release Asset (Windows)
+        if: startsWith(github.ref, 'refs/tags/') && matrix.os == 'windows-latest'
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.ref_name }}
-          draft: true
+          draft: false
           files: osu!Radio-windows.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload Release Asset (Linux)
-        if: matrix.os == 'ubuntu-latest'
+        if: startsWith(github.ref, 'refs/tags/') && matrix.os == 'ubuntu-latest'
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.ref_name }}
-          draft: true
+          draft: false
           files: osu!Radio.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload Release Assets (macOS)
-        if: matrix.os == 'macos-latest'
+        if: startsWith(github.ref, 'refs/tags/') && matrix.os == 'macos-latest'
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.ref_name }}
-          draft: true
+          draft: false
           files: |
             osu!Radio.pkg
             osu!Radio.dmg
