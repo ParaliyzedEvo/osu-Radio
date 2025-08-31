@@ -1,4 +1,4 @@
-__version__ = "1.8.0"
+__version__ = "1.8.5"
 
 import sys
 import os
@@ -532,6 +532,28 @@ class MainWindow(QMainWindow):
             self.export_songs_dialog()
 
     def import_custom_audio(self, folder: Path):
+        with sqlite3.connect(DATABASE_FILE) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS songs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT,
+                    artist TEXT,
+                    mapper TEXT,
+                    audio TEXT,
+                    background TEXT,
+                    length INTEGER,
+                    osu_file TEXT,
+                    folder TEXT
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS metadata (
+                    key TEXT PRIMARY KEY,
+                    value TEXT
+                )
+            """)
+            conn.commit()
         print(f"[Custom Audio] Importing from: {folder}")
         supported_exts = {".mp3", ".wav", ".ogg", ".flac", ".m4a", ".opus"}
         maps = []
@@ -626,14 +648,35 @@ class MainWindow(QMainWindow):
                 visible = lower in song["title"].lower() or lower in song["artist"].lower()
                 cb.setVisible(visible)
             update_select_all_state()
-
+        
         def update_select_all_state():
             visible_checks = [cb for cb in song_checks if cb.isVisible()]
             checked = [cb for cb in visible_checks if cb.isChecked()]
-
             total = len(visible_checks)
             count_label.setText(f"{len(checked)} / {total} selected")
-
+            
+            select_all_cb.blockSignals(True)
+            if len(checked) == 0:
+                select_all_cb.setCheckState(Qt.Unchecked)
+            elif len(checked) == total:
+                select_all_cb.setCheckState(Qt.Checked)
+            else:
+                select_all_cb.setCheckState(Qt.PartiallyChecked)
+            select_all_cb.blockSignals(False)
+        
+        def select_all_toggled():
+            state = select_all_cb.checkState()
+            
+            if state == Qt.Checked:
+                checked = False
+            else:
+                checked = True
+            
+            visible_checks = [cb for cb in song_checks if cb.isVisible()]
+            for cb in visible_checks:
+                cb.setChecked(checked)
+            update_select_all_state()
+        
         previously_selected = set()
         try:
             if Path(EXPORT_STATE_FILE).exists():
@@ -642,40 +685,44 @@ class MainWindow(QMainWindow):
         except Exception as e:
             print(f"[Export] Failed to load previous selection: {e}")
             previously_selected = set()
-
+        
         songs = []
         with sqlite3.connect(DATABASE_FILE) as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT title, artist, audio, folder FROM songs")
             rows = cursor.fetchall()
             songs = [{"title": r[0], "artist": r[1], "audio": r[2], "folder": r[3]} for r in rows]
-
+        
         if not songs:
             QMessageBox.information(self, "No Songs", "No songs found in the database.")
             return
-
+        
         dialog = QDialog(self)
         dialog.setWindowTitle("Export Songs")
         dialog.setMinimumSize(400, 500)
-
         layout = QVBoxLayout()
-
+        
         search_bar = QLineEdit()
         search_bar.setPlaceholderText("Search songs…")
         layout.addWidget(search_bar)
         search_bar.textChanged.connect(filter_checkboxes)
-
+        
         count_label = QLabel("0 / 0 selected")
         layout.addWidget(count_label)
-
+        
+        select_all_cb = QCheckBox("Select All")
+        select_all_cb.setTristate(True)
+        select_all_cb.stateChanged.connect(select_all_toggled)
+        layout.addWidget(select_all_cb)
+        
         label = QLabel("Select songs to export:")
         layout.addWidget(label)
-
+        
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll_content = QWidget()
         scroll_layout = QVBoxLayout(scroll_content)
-
+        
         song_checks = []
         for song in songs:
             checkbox = QCheckBox(f"{song['artist']} - {song['title']}")
@@ -687,24 +734,22 @@ class MainWindow(QMainWindow):
             checkbox.toggled.connect(update_select_all_state)
             scroll_layout.addWidget(checkbox)
             song_checks.append(checkbox)
-        
+    
         QTimer.singleShot(0, update_select_all_state)
-
         scroll_content.setLayout(scroll_layout)
         scroll.setWidget(scroll_content)
         layout.addWidget(scroll)
-
+        
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         layout.addWidget(button_box)
-
         button_box.accepted.connect(dialog.accept)
         button_box.rejected.connect(dialog.reject)
-
+        
         dialog.setLayout(layout)
-
+        
         if dialog.exec() != QDialog.Accepted:
             return
-
+        
         selected_songs = [c.song_data for c in song_checks if c.isChecked()]
         if not selected_songs:
             QMessageBox.warning(self, "No Selection", "No songs selected for export.")
@@ -1182,6 +1227,9 @@ class MainWindow(QMainWindow):
         self.update_play_pause_icon()
 
     def play_song_at_index(self, index):
+        if index >= len(self.queue):
+            return
+            
         self.current_index = index
         item = self.song_list.item(index)
         song = self.queue[index]
@@ -1202,11 +1250,48 @@ class MainWindow(QMainWindow):
         print("    file exists?   ", os.path.isfile(path))
 
         if not path.exists():
-            print("⚠️  Skipping playback — file not found:", path)
-            QMessageBox.warning(self, "Missing File", f"The selected audio file does not exist:\n{path}")
+            print("⚠️  File not found, removing from queue:", path)
+            
+            # Remove the missing song from queue and library
+            self.queue.pop(index)
+            if song in self.library:
+                self.library.remove(song)
+            
+            try:
+                with sqlite3.connect(DATABASE_FILE) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        "DELETE FROM songs WHERE title = ? AND artist = ? AND audio = ? AND folder = ?",
+                        (song["title"], song["artist"], song["audio"], song["folder"])
+                    )
+                    conn.commit()
+                    print(f"[Cleanup] Removed missing song from database: {song['title']}")
+            except Exception as e:
+                print(f"[Cleanup] Failed to remove from database: {e}")
+            
+            # Update the UI
+            self.populate_list(self.queue)
+            self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
+            
+            QMessageBox.warning(
+                self, 
+                "Missing File Removed", 
+                f"The file for '{song['artist']} - {song['title']}' was not found and has been removed from your queue."
+            )
+            
+            self.now_lbl.setText("—")
+            self.is_playing = False
+            self.update_play_pause_icon()
+            self.playback_timer.stop()
+
+            if self.queue:
+                if index >= len(self.queue):
+                    self.current_index = len(self.queue) - 1
+                else:
+                    self.current_index = index
+            
             return
 
-        # Set and play the media
         speed = float(self.speed_combo.currentText().replace("x", ""))
         self.pitch_player.was_playing_before_seek = True
         self.pitch_player.play(str(path), speed=speed, preserve_pitch=self.preserve_pitch, force_play=True)
@@ -1398,6 +1483,9 @@ class MainWindow(QMainWindow):
         self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
 
         print(f"[reload_complete] ✅ Found {len(library)} total songs after rescan.")
+        if CUSTOM_SONGS_PATH.exists() and any(CUSTOM_SONGS_PATH.iterdir()):
+            print("[startup] 📥 Found files in custom_songs, importing...")
+            self.import_custom_audio(CUSTOM_SONGS_PATH)
 
         if hasattr(self, "progress") and self.progress:
             self.progress.closeEvent = lambda ev: ev.accept()  # disable cancel check
