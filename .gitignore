@@ -181,6 +181,6 @@ dist/Osu!Radio/*.json
 updater.spec
 test/
 ffmpeg_bin/
-osuRadio/custom_songs
+custom_songs/
 test2/
 run.bat
