@@ -79,6 +79,21 @@ class SettingsDialog(QDialog):
         hue_layout.addWidget(self.hue_slider)
         layout.addLayout(hue_layout)
 
+        # Brightness slider
+        self.brightness_slider = QSlider(Qt.Horizontal)
+        self.brightness_slider.setRange(50, 255)
+        self.brightness_slider.setValue(getattr(parent, "brightness", 255))
+        self.brightness_slider.valueChanged.connect(
+            lambda v: parent.bg_widget.effect.setColor(
+                QColor.fromHsv(parent.hue, 255, v)
+            )
+        )
+
+        brightness_layout = QHBoxLayout()
+        brightness_layout.addWidget(QLabel("Brightness:"))
+        brightness_layout.addWidget(self.brightness_slider)
+        layout.addLayout(brightness_layout)
+
         # Resolution dropdown
         self.res_combo = QComboBox()
         self.resolutions = {
@@ -114,6 +129,7 @@ class SettingsDialog(QDialog):
         # Preview state backup
         self._original_opacity = parent.ui_opacity
         self._original_hue = parent.hue
+        self._original_brightness = getattr(parent, "brightness", 255)
 
     def browse_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Select osu! Songs Folder")
@@ -125,6 +141,7 @@ class SettingsDialog(QDialog):
         light = self.light_mode_checkbox.isChecked()
         opacity = self.opacity_slider.value() / 100
         hue = self.hue_slider.value()
+        brightness = self.brightness_slider.value()
         res = self.res_combo.currentText()
         if res == "Custom Resolution":
             w, h = self.main.width(), self.main.height()
@@ -139,7 +156,7 @@ class SettingsDialog(QDialog):
 
         was_prerelease = self.main.allow_prerelease
         self.main.apply_settings(
-            folder, light, opacity, w, h, hue,
+            folder, light, opacity, w, h, hue, brightness, 
             video_on, autoplay, media_keys, preserve_pitch,
             allow_prerelease, allow_resizing
         )
@@ -155,4 +172,5 @@ class SettingsDialog(QDialog):
         self.main.bg_widget.effect.setColor(QColor.fromHsv(self._original_hue, 255, 255))
         self.main.ui_opacity = self._original_opacity
         self.main.hue = self._original_hue
+        self.main.brightness = self._original_brightness
         super().reject()
