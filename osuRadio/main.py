@@ -667,10 +667,10 @@ class MainWindow(QMainWindow):
         def select_all_toggled():
             state = select_all_cb.checkState()
             
-            if state == Qt.Checked:
-                checked = False
-            else:
+            if state == Qt.Checked or state == Qt.PartiallyChecked:
                 checked = True
+            else:
+                checked = False
             
             visible_checks = [cb for cb in song_checks if cb.isVisible()]
             for cb in visible_checks:
