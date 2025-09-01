@@ -131,6 +131,7 @@ class MainWindow(QMainWindow):
         self.light_mode         = settings.get("light_mode", False)
         self.ui_opacity         = settings.get("ui_opacity", 0.75)
         self.hue                = settings.get("hue", 240)
+        self.brightness         = settings.get("brightness",255)
         self.loop_mode          = settings.get("loop_mode", 0)
         self.video_enabled      = settings.get("video_enabled", True)
         self.autoplay           = settings.get("autoplay", False)
@@ -508,7 +509,7 @@ class MainWindow(QMainWindow):
             
         self.apply_settings(
             self.osu_folder, self.light_mode, self.ui_opacity,
-            w, h, self.hue, self.video_enabled, self.autoplay,
+            w, h, self.hue, self.brightness, self.video_enabled, self.autoplay,
             self.media_keys_enabled, self.preserve_pitch, self.allow_prerelease, 
             allow_resizing=self.resizable
         )
@@ -1017,17 +1018,18 @@ class MainWindow(QMainWindow):
             self.bg_player.setPosition(0)
             self.bg_player.play()
 
-    def apply_settings(self, folder, light, opacity, w, h, hue, video_on, autoplay, media_keys, preserve_pitch, allow_prerelease, allow_resizing=False):
+    def apply_settings(self, folder, light, opacity, w, h, hue, brightness, video_on, autoplay, media_keys, preserve_pitch, allow_prerelease, allow_resizing=False):
         if folder != self.osu_folder and os.path.isdir(folder):
             self.osu_folder = folder
             self.reload_songs()
 
-        self._apply_ui_settings(light, opacity, w, h, hue)
+        self._apply_ui_settings(light, opacity, w, h, hue, brightness)
         self._apply_video_setting(video_on)
 
         self.light_mode = light
         self.ui_opacity = opacity
         self.hue = hue
+        self.brightness = brightness
         self.video_enabled = video_on
         self.autoplay = autoplay
         if self.media_keys_enabled != media_keys:
@@ -1064,7 +1066,7 @@ class MainWindow(QMainWindow):
             
         self.save_user_settings()
 
-    def _apply_ui_settings(self, light, opacity, w, h, hue):
+    def _apply_ui_settings(self, light, opacity, w, h, hue, brightness):
         self.light_mode = light
         self.apply_theme(light)
         self.ui_opacity = opacity
@@ -1078,7 +1080,15 @@ class MainWindow(QMainWindow):
             self.setMaximumSize(w, h)
             
         self.hue = hue
-        self.bg_widget.effect.setColor(QColor.fromHsv(hue, 255, 255))
+        self.brightness = brightness
+        color = QColor.fromHsv(self.hue, 255, self.brightness)
+        self.bg_widget.effect.setColor(color)
+        if not self.video_enabled:  
+            palette = self.bg_widget.palette()
+            palette.setColor(self.bg_widget.backgroundRole(), color)
+            self.bg_widget.setPalette(palette)
+            self.bg_widget.update()
+
         self.save_user_settings()
 
     def _apply_video_setting(self, enabled):
@@ -1089,6 +1099,7 @@ class MainWindow(QMainWindow):
             # Restore hue effect
             self.bg_widget.setGraphicsEffect(self.bg_widget.effect)
             self.bg_widget.effect.setEnabled(True)
+            self.bg_widget.effect.setColor(QColor.fromHsv(self.hue, 255, self.brightness))
 
             if not hasattr(self, "bg_player"):
                 video_file = Path(__file__).parent / "Background Video" / "Triangles.mov"
@@ -1112,9 +1123,13 @@ class MainWindow(QMainWindow):
                 self.video_sink.deleteLater()
                 del self.video_sink
 
-            # Remove hue effect and trigger repaint with manual hue
-            self.bg_widget.setGraphicsEffect(self.bg_widget.effect)
             self.bg_widget.effect.setEnabled(False)
+            
+            # Apply the current hue and brightness as a static background color
+            static_color = QColor.fromHsv(self.hue, 255, self.brightness)
+            palette = self.bg_widget.palette()
+            palette.setColor(self.bg_widget.backgroundRole(), static_color)
+            self.bg_widget.setPalette(palette)
             self.bg_widget.update()
 
         if self.media_keys_enabled:
@@ -1429,6 +1444,7 @@ class MainWindow(QMainWindow):
             "window_width": 854,
             "window_height": 480,
             "hue": 240,
+            "brightness": 255,
             "loop_mode": 0,
             "video_enabled": True,
             "autoplay": False,
@@ -1457,6 +1473,7 @@ class MainWindow(QMainWindow):
             "window_width": self.width(),
             "window_height": self.height(),
             "hue": self.hue,
+            "brightness": self.brightness,
             "loop_mode": self.loop_mode,
             "video_enabled": self.video_enabled,
             "autoplay": self.autoplay,
