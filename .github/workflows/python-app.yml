@@ -29,6 +29,14 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -52,16 +60,30 @@ jobs:
             nohup Xvfb :99 -screen 0 1024x768x16 > /dev/null 2>&1 &
           fi
         shell: bash
-        
+
+      - name: Cache ffmpeg_bin
+        id: cache-ffmpeg
+        uses: actions/cache@v4
+        with:
+          path: osuRadio/ffmpeg_bin
+          key: ${{ runner.os }}-ffmpeg_bin-v1
+
       - name: Install ffmpeg_bin
+        if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
         run: |
           pip install gdown
           gdown https://drive.google.com/uc?id=1lwGVfmVmpHLaUZ6geXXpFFnv7eUAj0gz -O ffmpeg_bin.zip
           unzip ffmpeg_bin.zip -d osuRadio/ffmpeg_bin
-        
-      # --- macOS Specific: Icon Conversion and Tools ---
-      - name: Convert .png to .icns (macOS only)
+
+      - name: Cache macOS icon
         if: matrix.os == 'macos-latest'
+        uses: actions/cache@v4
+        with:
+          path: osuRadio/Osu!RadioIcon.icns
+          key: macos-icon-${{ hashFiles('osuRadio/Osu!RadioIcon.png') }}
+
+      - name: Convert .png to .icns (macOS only)
+        if: matrix.os == 'macos-latest' && steps.cache-macos-icon.outputs.cache-hit != 'true'
         run: |
           brew install imagemagick
           cd "osuRadio"
@@ -81,7 +103,7 @@ jobs:
           cp "$ICONSET/icon_1024x1024.png" "$ICONSET/icon_512x512@2x.png"
           iconutil -c icns "$ICONSET" -o "${ICON_NAME}.icns"
           rm -r "$ICONSET"
-          
+
       - name: Build updater (Windows and Linux)
         if: matrix.os != 'macos-latest'
         run: |
