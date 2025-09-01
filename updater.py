@@ -12,6 +12,47 @@ def log_print(msg):
     log.write(msg + "\n")
     log.flush()
 
+def safe_copy_file(src, dst, max_retries=3):
+    """Safely copy a file with retries and better error handling."""
+    for attempt in range(max_retries):
+        try:
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            
+            if not wait_for_unlock(src, timeout=10):
+                log_print(f"⚠️ Source file locked: {src}")
+                continue
+            
+            # Try different copy methods
+            if attempt == 0:
+                shutil.copy2(src, dst)
+            elif attempt == 1:
+                shutil.copy(src, dst)
+            else:
+                with open(src, 'rb') as src_file, open(dst, 'wb') as dst_file:
+                    shutil.copyfileobj(src_file, dst_file)
+            
+            if os.path.exists(dst) and os.path.getsize(dst) > 0:
+                log_print(f"✅ Successfully copied: {os.path.basename(src)} (attempt {attempt + 1})")
+                return True
+            else:
+                log_print(f"⚠️ Copy verification failed for: {src}")
+                
+        except PermissionError as e:
+            log_print(f"⚠️ Permission denied copying {src}: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(2)
+        except OSError as e:
+            log_print(f"⚠️ OS error copying {src}: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(1)
+        except Exception as e:
+            log_print(f"⚠️ Unexpected error copying {src}: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(1)
+    
+    log_print(f"❌ Failed to copy after {max_retries} attempts: {src}")
+    return False
+
 if len(sys.argv) < 5:
     log_print("❌ Not enough arguments provided. Expected: src_dir dst_dir exe_name pid")
     sys.exit(1)
@@ -39,10 +80,12 @@ def wait_for_unlock(target_path, timeout=30):
     start_time = time.time()
     while time.time() - start_time < timeout:
         try:
-            os.rename(target_path, target_path)  # no-op if not locked
+            # Try to open the file in append mode (less intrusive than rename)
+            with open(target_path, 'ab'):
+                pass
             return True
-        except Exception as e:
-            log_print(f"Waiting for file unlock: {target_path} - {e}")
+        except (PermissionError, OSError) as e:
+            log_print(f"Waiting for file unlock: {os.path.basename(target_path)} - {e}")
             time.sleep(0.5)
     log_print(f"❌ Timed out waiting for unlock: {target_path}")
     return False
@@ -72,6 +115,8 @@ for root, dirs, files in os.walk(dst_dir, topdown=True):
             log_print(f"🛑 Preserved file: {os.path.relpath(file_path, dst_dir)}")
             continue
         try:
+            # Wait for file to be unlocked before deleting
+            wait_for_unlock(file_path, timeout=5)
             os.remove(file_path)
             log_print(f"Deleted file: {os.path.relpath(file_path, dst_dir)}")
         except Exception as e:
@@ -93,6 +138,7 @@ for root, dirs, files in os.walk(dst_dir, topdown=False):
             log_print(f"⚠️ Failed to remove directory {dir}: {e}")
 
 # Copy all files from src_dir into dst_dir
+copy_failures = []
 for root, dirs, files in os.walk(src_dir):
     rel_path = os.path.relpath(root, src_dir)
     target_root = os.path.join(dst_dir, rel_path) if rel_path != "." else dst_dir
@@ -106,11 +152,14 @@ for root, dirs, files in os.walk(src_dir):
         src_file = os.path.join(root, file)
         dst_file = os.path.join(target_root, file)
         
-        try:
-            shutil.copy2(src_file, dst_file)
-            log_print(f"Copied: {os.path.relpath(src_file, src_dir)} -> {os.path.relpath(dst_file, dst_dir)}")
-        except Exception as e:
-            log_print(f"❌ Failed to copy {src_file} → {dst_file}: {e}")
+        if not safe_copy_file(src_file, dst_file):
+            copy_failures.append((src_file, dst_file))
+
+# Report copy failures
+if copy_failures:
+    log_print(f"❌ {len(copy_failures)} files failed to copy:")
+    for src, dst in copy_failures:
+        log_print(f"   Failed: {os.path.basename(src)}")
 
 # Remove temp files
 try:
@@ -132,7 +181,11 @@ except Exception as e:
 # Relaunch the app (replaces this process)
 try:
     if os.path.exists(exe_path):
-        os.execv(exe_path, [exe_path])
+        # Ensure the exe is executable
+        if os.name == 'nt':
+            os.startfile(exe_path)
+        else:
+            os.execv(exe_path, [exe_path])
     else:
         print(f"❌ Executable not found: {exe_path}")
         sys.exit(1)
