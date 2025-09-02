@@ -717,7 +717,7 @@ class MainWindow(QMainWindow):
 
         dialog = QDialog(self)
         dialog.setWindowTitle("Download from YouTube")
-        dialog.setMinimumSize(400, 200)
+        dialog.setFixedSize(400, 220)
         layout = QVBoxLayout()
 
         # URL input
