@@ -1,5 +1,4 @@
 import ffmpeg
-import platform
 import wave
 import sys
 import os
@@ -13,19 +12,6 @@ from PySide6.QtCore import (
 )
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 from .config import *
-
-# FFmpeg bin setup
-def get_ffmpeg_bin_path():
-    base = Path(__file__).resolve().parent / "ffmpeg_bin"
-    system = platform.system().lower()
-    if system == "windows":
-        return base / "windows" / "bin" / "ffmpeg.exe"
-    elif system == "darwin":
-        return base / "macos" / "ffmpeg"
-    elif system == "linux":
-        return base / "linux" / "bin" / "ffmpeg"
-    else:
-        raise RuntimeError(f"Unsupported platform: {system}")
 
 ffmpeg_path = str(get_ffmpeg_bin_path())
 _original_popen = subprocess.Popen

@@ -6,3 +6,4 @@ requests>=2.32.3
 packaging>=25.0
 python-dateutil>=2.9.0
 ffmpeg-python>=0.2.0
+yt-dlp>=2025.8.27
