@@ -75,7 +75,7 @@ jobs:
         if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
         run: |
           pip install gdown
-          gdown https://drive.google.com/uc?id=1lwGVfmVmpHLaUZ6geXXpFFnv7eUAj0gz -O ffmpeg_bin.zip
+          gdown https://drive.google.com/uc?id=1lAjqQK2Sz38qi3OB6EjkHHav3ba7m5JI -O ffmpeg_bin.zip
           unzip ffmpeg_bin.zip -d osuRadio/ffmpeg_bin
 
       - name: Cache macOS icon
