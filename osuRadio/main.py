@@ -10,11 +10,12 @@ import tempfile
 import shutil
 import subprocess
 import tempfile
+import re
 from packaging import version
 from pathlib import Path
 from time import monotonic
 from PySide6.QtCore import (
-    Qt, QUrl, QTimer, QThread, QMetaObject, Signal,
+    Qt, QUrl, QTimer, QThread, Signal,
     QEvent, QSize
 )
 from PySide6.QtGui import (
@@ -26,7 +27,8 @@ from PySide6.QtWidgets import (
     QPushButton, QLineEdit, QSlider, QStyle,
     QDialog, QDialogButtonBox, QCheckBox, QComboBox,
     QGraphicsOpacityEffect, QMenu, QGridLayout, QToolTip, QSizePolicy,
-    QMessageBox, QProgressDialog, QScrollArea
+    QMessageBox, QProgressDialog, QScrollArea, QButtonGroup, QRadioButton,
+    QProgressBar
 )
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QVideoSink, QAudioFormat, QMediaDevices
 
@@ -611,26 +613,235 @@ class MainWindow(QMainWindow):
                 self.current_index = 0
 
     def import_custom_songs_flow(self):
-        custom_folder = BASE_PATH / "custom_songs"
-        custom_folder.mkdir(exist_ok=True)
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Import Custom Songs")
+        msg.setText("How would you like to import songs?")
+        manual_btn = msg.addButton("Manual (Open Folder)", QMessageBox.ButtonRole.AcceptRole)
+        youtube_btn = msg.addButton("Download from YouTube", QMessageBox.ButtonRole.ActionRole)
+        cancel_btn = msg.addButton(QMessageBox.StandardButton.Cancel)
+        show_modal(msg)
 
-        # Open file explorer
+        if msg.clickedButton() == manual_btn:
+            self.manual_import_flow(CUSTOM_SONGS_PATH)
+        elif msg.clickedButton() == youtube_btn:
+            self.youtube_import_flow(CUSTOM_SONGS_PATH)
+
+    def manual_import_flow(self, CUSTOM_SONGS_PATH):
         if IS_WINDOWS:
-            os.startfile(str(custom_folder))
+            os.startfile(str(CUSTOM_SONGS_PATH))
         elif sys.platform == "darwin":
-            subprocess.Popen(["open", str(custom_folder)])
+            subprocess.Popen(["open", str(CUSTOM_SONGS_PATH)])
         elif sys.platform.startswith("linux"):
-            subprocess.Popen(["xdg-open", str(custom_folder)])
+            subprocess.Popen(["xdg-open", str(CUSTOM_SONGS_PATH)])
 
-        # Ask to import now
         msg = QMessageBox(self)
         msg.setWindowTitle("Import Custom Songs")
         msg.setText("Do you want to import songs from the custom_songs folder now?")
-        msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         show_modal(msg)
 
-        if msg.result() == QMessageBox.Yes:
-            self.import_custom_audio(custom_folder)
+        if msg.result() == QMessageBox.StandardButton.Yes:
+            self.import_custom_audio(CUSTOM_SONGS_PATH)
+
+    def youtube_import_flow(self, CUSTOM_SONGS_PATH):
+        class DownloadWorker(QThread):
+            progress_updated = Signal(int)
+            status_updated = Signal(str)
+            download_finished = Signal(bool, str)
+            
+            def __init__(self, url, audio_format, CUSTOM_SONGS_PATH):
+                super().__init__()
+                self.url = url
+                self.audio_format = audio_format
+                self.CUSTOM_SONGS_PATH = CUSTOM_SONGS_PATH
+            
+            def run(self):
+                try:
+                    print(f"[YouTube Download] Starting download: {self.url}")
+                    print(f"[YouTube Download] Format: {self.audio_format}")
+                    print(f"[YouTube Download] Output folder: {self.CUSTOM_SONGS_PATH}")
+                    
+                    ytdlp_path = str(get_yt_dlp_path())
+                    
+                    output_template = str(self.CUSTOM_SONGS_PATH / "%(title)s.%(ext)s")
+                    cmd = [
+                        str(ytdlp_path),
+                        "-x",
+                        "--audio-format", self.audio_format,
+                        "--audio-quality", "0",
+                        "--newline",
+                        "-o", output_template,
+                        self.url
+                    ]
+                    
+                    print(f"[YouTube Download] Command: {' '.join(cmd)}")
+                    
+                    process = subprocess.Popen(
+                        cmd, 
+                        stdout=subprocess.PIPE, 
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        bufsize=1,
+                        universal_newlines=True,
+                        creationflags=subprocess.CREATE_NO_WINDOW if IS_WINDOWS else 0
+                    )
+                    
+                    while True:
+                        line = process.stdout.readline()
+                        if not line and process.poll() is not None:
+                            break
+                        
+                        if line:
+                            line = line.strip()
+                            print(f"[yt-dlp] {line}")
+                            
+                            if '[download]' in line and '%' in line:
+                                match = re.search(r'\[download\]\s+(\d+(?:\.\d+)?)%', line)
+                                if match:
+                                    percent = int(float(match.group(1)))
+                                    self.progress_updated.emit(percent)
+                                    self.status_updated.emit(f"Downloading... {percent}%")
+                            
+                            elif '[ffmpeg]' in line or 'post-process' in line.lower():
+                                self.status_updated.emit("Processing audio...")
+                    
+                    return_code = process.wait()
+                    if return_code == 0:
+                        self.download_finished.emit(True, "")
+                    else:
+                        self.download_finished.emit(False, "Download failed - check console for details")
+                        
+                except Exception as e:
+                    print(f"[YouTube Download] Exception: {e}")
+                    self.download_finished.emit(False, str(e))
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Download from YouTube")
+        dialog.setMinimumSize(400, 200)
+        layout = QVBoxLayout()
+
+        # URL input
+        url_label = QLabel("YouTube URL:")
+        layout.addWidget(url_label)
+        
+        url_input = QLineEdit()
+        url_input.setPlaceholderText("https://www.youtube.com/watch?v=...")
+        layout.addWidget(url_input)
+
+        # Audio format selection
+        format_label = QLabel("Audio Format:")
+        layout.addWidget(format_label)
+        
+        format_group = QButtonGroup()
+        wav_radio = QRadioButton("WAV (High quality)")
+        mp3_radio = QRadioButton("MP3 (Good quality)")
+        mp3_radio.setChecked(True)
+        
+        format_group.addButton(wav_radio)
+        format_group.addButton(mp3_radio)
+        
+        layout.addWidget(wav_radio)
+        layout.addWidget(mp3_radio)
+
+        # Progress bar
+        progress_bar = QProgressBar()
+        progress_bar.setVisible(False)
+        layout.addWidget(progress_bar)
+
+        # Status label
+        status_label = QLabel("")
+        layout.addWidget(status_label)
+
+        # Buttons
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        layout.addWidget(button_box)
+        
+        dialog.setLayout(layout)
+        
+        worker = None
+        
+        def download_song():
+            nonlocal worker
+            url = url_input.text().strip()
+            if not url:
+                QMessageBox.warning(dialog, "Invalid URL", "Please enter a YouTube URL.")
+                return
+            
+            # Determine audio format
+            audio_format = "wav" if wav_radio.isChecked() else "mp3"
+            
+            # Show progress and disable inputs
+            progress_bar.setVisible(True)
+            progress_bar.setRange(0, 100)
+            progress_bar.setValue(0)
+            status_label.setText("Starting download...")
+            button_box.button(QDialogButtonBox.StandardButton.Ok).setEnabled(False)
+            url_input.setEnabled(False)
+            wav_radio.setEnabled(False)
+            mp3_radio.setEnabled(False)
+            
+            # Create and start worker
+            worker = DownloadWorker(url, audio_format, CUSTOM_SONGS_PATH)
+            
+            def on_progress(percent):
+                progress_bar.setValue(percent)
+            
+            def on_status(status):
+                status_label.setText(status)
+                if "Processing" in status:
+                    progress_bar.setRange(0, 0)
+            
+            def on_finished(success, error_msg):
+                if success:
+                    status_label.setText("Download completed successfully!")
+                    progress_bar.setVisible(False)
+                    
+                    # Reset UI
+                    button_box.button(QDialogButtonBox.StandardButton.Ok).setEnabled(True)
+                    url_input.setEnabled(True)
+                    wav_radio.setEnabled(True)
+                    mp3_radio.setEnabled(True)
+                    
+                    dialog.accept()
+                    
+                    def show_import():
+                        self.import_after_download(CUSTOM_SONGS_PATH)
+                    
+                    QTimer.singleShot(100, show_import)
+                    
+                else:
+                    status_label.setText("Download failed!")
+                    QMessageBox.critical(dialog, "Download Failed", f"Error: {error_msg}")
+                    self.reset_download_dialog(button_box, url_input, wav_radio, mp3_radio, progress_bar, status_label)
+            
+            worker.progress_updated.connect(on_progress)
+            worker.status_updated.connect(on_status)
+            worker.download_finished.connect(on_finished)
+            
+            worker.start()
+        
+        button_box.accepted.connect(download_song)
+        button_box.rejected.connect(dialog.reject)
+        
+        dialog.exec()
+
+    def reset_download_dialog(self, button_box, url_input, wav_radio, mp3_radio, progress_bar, status_label):
+        progress_bar.setVisible(False)
+        status_label.setText("")
+        button_box.button(QDialogButtonBox.StandardButton.Ok).setEnabled(True)
+        url_input.setEnabled(True)
+        wav_radio.setEnabled(True)
+        mp3_radio.setEnabled(True)
+
+    def import_after_download(self, CUSTOM_SONGS_PATH):
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Import Downloaded Songs")
+        msg.setText("Download completed! Do you want to import the downloaded songs now?")
+        msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        show_modal(msg)
+
+        if msg.result() == QMessageBox.StandardButton.Yes:
+            self.import_custom_audio(CUSTOM_SONGS_PATH)
 
     def export_songs_dialog(self):        
         def filter_checkboxes(text):

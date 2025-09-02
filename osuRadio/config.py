@@ -1,5 +1,6 @@
 import sys
 import os
+import platform
 from pathlib import Path
 
 # Paths
@@ -42,3 +43,28 @@ else:
     
 ICON_PATH = ASSETS_PATH / ICON_FILE
 IMG_PATH = ASSETS_PATH / "img"
+
+# FFmpeg bin setup
+def get_ffmpeg_bin_path():
+    base = Path(__file__).resolve().parent / "ffmpeg_bin"
+    system = platform.system().lower()
+    if system == "windows":
+        return base / "windows" / "bin" / "ffmpeg.exe"
+    elif system == "darwin":
+        return base / "macos" / "ffmpeg"
+    elif system == "linux":
+        return base / "linux" / "bin" / "ffmpeg"
+    else:
+        raise RuntimeError(f"Unsupported platform: {system}")
+    
+def get_yt_dlp_path():
+    base = Path(__file__).resolve().parent / "ffmpeg_bin"
+    system = platform.system().lower()
+    if system == "windows":
+        return base / "windows" / "bin" / "yt-dlp.exe"
+    elif system == "darwin":
+        return base / "macos" / "yt-dlp"
+    elif system == "linux":
+        return base / "linux" / "bin" / "yt-dlp"
+    else:
+        raise RuntimeError(f"Unsupported platform: {system}")
