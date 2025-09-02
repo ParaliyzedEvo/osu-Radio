@@ -1,4 +1,4 @@
-__version__ = "1.9.0b2"
+__version__ = "1.9.0b3"
 
 import sys
 import os
@@ -447,15 +447,6 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence(Qt.Key_MediaPrevious), self, self.prev_song)
         QShortcut(QKeySequence(Qt.Key_MediaPlay),     self, self.play_song)
         QShortcut(QKeySequence(Qt.Key_MediaPause),    self, self.pause_song)
-        
-        # register global media-key hotkeys
-        # arguments: hWnd (0 for all windows), id, fsModifiers, vk
-        if user32 and self.media_keys_enabled:
-            user32.RegisterHotKey(0, 1, MOD_NOREPEAT, VK_MEDIA_PLAY_PAUSE)
-            user32.RegisterHotKey(0, 2, MOD_NOREPEAT, VK_MEDIA_NEXT_TRACK)
-            user32.RegisterHotKey(0, 3, MOD_NOREPEAT, VK_MEDIA_PREV_TRACK)
-        else:
-            print("Global hotkeys not available on this platform.")
             
         # Load from cache if available
         osu_cache = load_cache(self.osu_folder)
@@ -1132,23 +1123,6 @@ class MainWindow(QMainWindow):
             self.bg_widget.setPalette(palette)
             self.bg_widget.update()
 
-        if self.media_keys_enabled:
-            try:
-                from pynput import keyboard as kb
-
-                def on_press(key):
-                    if key == kb.Key.media_next:
-                        QMetaObject.invokeMethod(self, "next_song", Qt.QueuedConnection)
-                    elif key == kb.Key.media_previous:
-                        QMetaObject.invokeMethod(self, "prev_song", Qt.QueuedConnection)
-                    elif key == kb.Key.media_play_pause:
-                        QMetaObject.invokeMethod(self, "toggle_play", Qt.QueuedConnection)
-
-                self.media_key_listener = kb.Listener(on_press=on_press)
-                self.media_key_listener.start()
-            except Exception as e:
-                print("Failed to start media key listener:", e)
-
     def apply_theme(self, light: bool):
         if light:
             style = """
@@ -1541,10 +1515,12 @@ class MainWindow(QMainWindow):
             self._scanner.wait(3000)
 
         # 1) Unregister global hotkeys
-        if user32 and self.media_keys_enabled:
-            user32.UnregisterHotKey(0, 1)
-            user32.UnregisterHotKey(0, 2)
-            user32.UnregisterHotKey(0, 3)
+        try:
+            if hasattr(self, 'media_key_listener') and self.media_key_listener:
+                self.media_key_listener.stop()
+                self.media_key_listener = None
+        except Exception as e:
+            print(f"[Cleanup] Failed to stop media key listener: {e}")
 
         # 2) Stop video loop cleanly
         try:
