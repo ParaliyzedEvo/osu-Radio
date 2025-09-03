@@ -5,25 +5,27 @@ from PySide6.QtCore import (
     Qt, QUrl
 )
 from PySide6.QtGui import (
-    QColor,
+    QColor
 )
 from PySide6.QtWidgets import (
     QLabel, QFileDialog,
     QHBoxLayout, QVBoxLayout,
     QPushButton, QLineEdit, QSlider,
     QDialog, QDialogButtonBox, QCheckBox, QComboBox,
-    QSizePolicy
+    QSizePolicy, QMessageBox
 )
 from PySide6.QtMultimedia import QMediaPlayer, QVideoSink
+
 from osuRadio.config import SETTINGS_FILE
+from osuRadio.msg import show_modal
 from osuRadio.media_keys import update_media_key_listener
-from osuRadio import __version__
+from osuRadio import __version__, __author__
 
 class SettingsDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
         self.setWindowTitle("Settings")
-        self.setFixedSize(400, 350)
+        self.setFixedSize(400, 400)
         self.main = parent
 
         layout = QVBoxLayout(self)
@@ -127,6 +129,11 @@ class SettingsDialog(QDialog):
         update_btn.clicked.connect(lambda: parent.check_updates(manual=True))
         layout.addWidget(update_btn)
 
+        # Credits button
+        credits_btn = QPushButton("Credits")
+        credits_btn.clicked.connect(self.show_credits)
+        layout.addWidget(credits_btn)
+
         # Buttons
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.apply)
@@ -137,6 +144,27 @@ class SettingsDialog(QDialog):
         self._original_opacity = parent.ui_opacity
         self._original_hue = parent.hue
         self._original_brightness = getattr(parent, "brightness", 255)
+
+    def show_credits(self):
+        text = (
+            'This software is provided and licensed under the '
+            '<a href="https://github.com/ParaliyzedEvo/osu-Radio/blob/main/LICENSE">AGPL-V3 License</a><br>'
+            f"Made by: {__author__}<br><br>"
+            "Source code made by Thunderbirdo:<br>"
+            '<a href="https://github.com/ParaliyzedEvo/osu-Radio/tree/source">'
+            "https://github.com/ParaliyzedEvo/osu-Radio/tree/source</a><br>"
+            "Github Repository:<br>"
+            '<a href="https://github.com/ParaliyzedEvo/osu-Radio/tree/main">'
+            "https://github.com/ParaliyzedEvo/osu-Radio/tree/main</a>"
+        )
+
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Credits")
+        msg.setTextFormat(Qt.RichText)
+        msg.setTextInteractionFlags(Qt.TextBrowserInteraction)
+        msg.setText(text)
+
+        show_modal(msg)
 
     def browse_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Select osu! Songs Folder")
