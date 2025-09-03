@@ -1,5 +1,3 @@
-__version__ = "1.9.0b3"
-
 import sys
 import os
 import json
