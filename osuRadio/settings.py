@@ -1,5 +1,8 @@
+import json
+import os
+from pathlib import Path
 from PySide6.QtCore import (
-    Qt
+    Qt, QUrl
 )
 from PySide6.QtGui import (
     QColor,
@@ -9,7 +12,12 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QVBoxLayout,
     QPushButton, QLineEdit, QSlider,
     QDialog, QDialogButtonBox, QCheckBox, QComboBox,
+    QSizePolicy
 )
+from PySide6.QtMultimedia import QMediaPlayer, QVideoSink
+from osuRadio.config import SETTINGS_FILE
+from osuRadio.media_keys import update_media_key_listener
+from osuRadio import __version__
 
 class SettingsDialog(QDialog):
     def __init__(self, parent):
@@ -173,3 +181,175 @@ class SettingsDialog(QDialog):
         self.main.hue = self._original_hue
         self.main.brightness = self._original_brightness
         super().reject()
+
+class SettingsMixin:
+    def load_user_settings(self):
+        defaults = {
+            "osu_folder": None,
+            "light_mode": False,
+            "ui_opacity": 0.75,
+            "window_width": 854,
+            "window_height": 480,
+            "hue": 240,
+            "brightness": 255,
+            "loop_mode": 0,
+            "video_enabled": True,
+            "autoplay": False,
+            "media_keys_enabled": True,
+            "preserve_pitch": True,
+            "allow_prerelease": False,
+            "was_prerelease": False,
+            "resolution": "854×480",
+            "custom_width": "null",
+            "custom_height": "null",
+            "skipped_versions": [],
+        }
+        if SETTINGS_FILE.exists():
+            try:
+                with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                    return {**defaults, **json.load(f)}
+            except Exception as e:
+                print("[load_user_settings] Failed to load settings:", e)
+        return defaults
+
+    def save_user_settings(self):
+        settings = {
+            "osu_folder": self.osu_folder,
+            "light_mode": self.light_mode,
+            "ui_opacity": self.ui_opacity,
+            "window_width": self.width(),
+            "window_height": self.height(),
+            "hue": self.hue,
+            "brightness": self.brightness,
+            "loop_mode": self.loop_mode,
+            "video_enabled": self.video_enabled,
+            "autoplay": self.autoplay,
+            "media_keys_enabled": self.media_keys_enabled,
+            "volume": int(self.audio_out.volume() * 100) if hasattr(self, "audio_out") else 30,
+            "preserve_pitch": self.preserve_pitch,
+            "allow_prerelease": self.allow_prerelease,
+            "was_prerelease": self.is_prerelease_version(__version__),
+            "resolution": "Custom Resolution" if self.resizable else f"{self.width()}×{self.height()}",
+            "custom_width": self.width() if self.resizable else None,
+            "custom_height": self.height() if self.resizable else None,
+            "skipped_versions": self.skipped_versions,
+        }
+        try:
+            with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+                json.dump(settings, f, indent=2)
+        except Exception as e:
+            print("[save_user_settings] Failed to save settings:", e)
+
+    def apply_settings(self, folder, light, opacity, w, h, hue, brightness, video_on, autoplay, media_keys, preserve_pitch, allow_prerelease, allow_resizing=False):
+        if folder != self.osu_folder and os.path.isdir(folder):
+            self.osu_folder = folder
+            self.reload_songs()
+
+        self._apply_ui_settings(light, opacity, w, h, hue, brightness)
+        self._apply_video_setting(video_on)
+
+        self.light_mode = light
+        self.ui_opacity = opacity
+        self.hue = hue
+        self.brightness = brightness
+        self.video_enabled = video_on
+        self.autoplay = autoplay
+        if self.media_keys_enabled != media_keys:
+            self.media_keys_enabled = media_keys
+            update_media_key_listener(self)
+        self.preserve_pitch = preserve_pitch
+        self.allow_prerelease = allow_prerelease
+        if allow_resizing:
+            self.resizable = True
+            self.setMinimumSize(480, int(480 / self.aspect_ratio))
+            self._set_dynamic_max_size()
+            self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            self.setWindowFlags(
+                Qt.Window |
+                Qt.CustomizeWindowHint |
+                Qt.WindowTitleHint |
+                Qt.WindowMinMaxButtonsHint |
+                Qt.WindowCloseButtonHint
+            )
+            self.show()
+        else:
+            self.resizable = False
+            self.setMinimumSize(w, h)
+            self.setMaximumSize(w, h)
+            self.setWindowFlags(
+            Qt.Window |
+            Qt.CustomizeWindowHint |
+            Qt.WindowTitleHint |
+            Qt.WindowMinimizeButtonHint |
+            Qt.WindowCloseButtonHint
+        )
+            self.resize(w, h)
+            self.show()
+            
+        self.save_user_settings()
+
+    def _apply_ui_settings(self, light, opacity, w, h, hue, brightness):
+        self.light_mode = light
+        self.apply_theme(light)
+        self.ui_opacity = opacity
+        self.ui_effect.setOpacity(opacity)
+        if self.resizable:
+            self.setMinimumSize(480, int(480 / self.aspect_ratio))
+            self._set_dynamic_max_size()
+            self.resize(w, h)
+        else:
+            self.setMinimumSize(w, h)
+            self.setMaximumSize(w, h)
+            
+        self.hue = hue
+        self.brightness = brightness
+        color = QColor.fromHsv(self.hue, 255, self.brightness)
+        self.bg_widget.effect.setColor(color)
+        if not self.video_enabled:  
+            palette = self.bg_widget.palette()
+            palette.setColor(self.bg_widget.backgroundRole(), color)
+            self.bg_widget.setPalette(palette)
+            self.bg_widget.update()
+
+        self.save_user_settings()
+
+    def _apply_video_setting(self, enabled):
+        self.video_enabled = enabled
+        self.bg_widget.setVisible(True)
+
+        if enabled:
+            # Restore hue effect
+            self.bg_widget.setGraphicsEffect(self.bg_widget.effect)
+            self.bg_widget.effect.setEnabled(True)
+            self.bg_widget.effect.setColor(QColor.fromHsv(self.hue, 255, self.brightness))
+
+            if not hasattr(self, "bg_player"):
+                video_file = Path(__file__).parent / "Background Video" / "Triangles.mov"
+                if video_file.exists():
+                    self.video_sink = QVideoSink(self)
+                    self.video_sink.videoFrameChanged.connect(self.bg_widget.setFrame)
+                    self.bg_player = QMediaPlayer(self)
+                    self.bg_player.setVideoOutput(self.video_sink)
+                    self.bg_player.setSource(QUrl.fromLocalFile(str(video_file)))
+                    self.bg_player.mediaStatusChanged.connect(self.loop_video)
+
+            self.bg_player.play()
+
+        else:
+            # Remove video and disable QGraphicsColorizeEffect
+            if hasattr(self, "bg_player"):
+                self.bg_player.stop()
+                self.bg_player.deleteLater()
+                del self.bg_player
+            if hasattr(self, "video_sink"):
+                self.video_sink.deleteLater()
+                del self.video_sink
+
+            self.bg_widget.effect.setEnabled(False)
+            
+            # Apply the current hue and brightness as a static background color
+            static_color = QColor.fromHsv(self.hue, 255, self.brightness)
+            palette = self.bg_widget.palette()
+            palette.setColor(self.bg_widget.backgroundRole(), static_color)
+            self.bg_widget.setPalette(palette)
+            self.bg_widget.update()
