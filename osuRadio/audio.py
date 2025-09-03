@@ -11,7 +11,8 @@ from PySide6.QtCore import (
     QUrl, QTimer
 )
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
-from .config import *
+
+from osuRadio.config import get_ffmpeg_bin_path
 
 ffmpeg_path = str(get_ffmpeg_bin_path())
 _original_popen = subprocess.Popen

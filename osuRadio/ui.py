@@ -9,7 +9,6 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QWidget, QLabel, QGraphicsColorizeEffect
 )
-from .config import *
 
 class MarqueeLabel(QLabel):
     def __init__(self, *args):

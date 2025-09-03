@@ -1,7 +1,7 @@
 import os
 import sqlite3
 from pathlib import Path
-from .config import *
+from osuRadio.config import DATABASE_FILE
 
 def init_db():
     with sqlite3.connect(DATABASE_FILE) as conn:

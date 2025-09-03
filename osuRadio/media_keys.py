@@ -1,4 +1,3 @@
-from .config import *
 from PySide6.QtCore import (
     Qt, QMetaObject
 )
