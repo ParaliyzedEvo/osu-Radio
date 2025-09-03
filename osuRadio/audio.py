@@ -6,13 +6,21 @@ import tempfile
 import subprocess
 import tempfile
 import hashlib
+import sqlite3
+import random
+from time import monotonic
 from pathlib import Path
 from PySide6.QtCore import (
-    QUrl, QTimer
+    QUrl, QTimer, Qt
 )
-from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
+from PySide6.QtWidgets import QMessageBox
+from PySide6.QtGui import (
+    QCursor
+)
+from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QMediaDevices, QAudioFormat
 
-from osuRadio.config import get_ffmpeg_bin_path
+from osuRadio.config import get_ffmpeg_bin_path, DATABASE_FILE
+from osuRadio.db import get_audio_path
 
 ffmpeg_path = str(get_ffmpeg_bin_path())
 _original_popen = subprocess.Popen
@@ -224,3 +232,232 @@ def process_audio(input_file, speed=1.0, adjust_pitch=False, cache_dir=None):
         stream.output(str(output_file), acodec="pcm_s16le", ac=2, ar=44100).run(overwrite_output=True, quiet=True)
 
     return output_file, get_audio_duration(output_file)
+
+class PlayerMixin:
+    def setup_media_players(self):
+        output_device = QMediaDevices.defaultAudioOutput()
+
+        audio_format = QAudioFormat()
+        audio_format.setSampleRate(44100)
+        audio_format.setChannelCount(2)
+        audio_format.setSampleFormat(QAudioFormat.Int16)
+
+        if not output_device.isFormatSupported(audio_format):
+            print("❌ 44100Hz Int16 not supported — falling back to preferred format.")
+            audio_format = output_device.preferredFormat()
+        else:
+            print("✅ Using 44100Hz Int16")
+
+        print("[Audio Format] Using format:")
+        print(f"  Sample Rate: {audio_format.sampleRate()}")
+        print(f"  Channels:    {audio_format.channelCount()}")
+        print(f"  Sample Type: {audio_format.sampleFormat()}")
+
+        # Create QAudioSink and set volume here (not in __init__)
+        self.audio_out = QAudioOutput(output_device, self)
+        self.audio_out.setVolume(self.vol / 100)
+
+        self.pitch_player = PitchAdjustedPlayer(self.audio_out, self)
+
+    def connect_slider_signals(self):
+        # Link slider drag behavior and update preview time.
+        self.slider.sliderPressed.connect(lambda: setattr(self, "_user_dragging", True))
+        self.slider.sliderReleased.connect(lambda: (setattr(self, "_user_dragging", False), self.seek(self.slider.value())))
+        self.slider.valueChanged.connect(lambda v: self._update_elapsed_label(v))
+
+    def update_position(self, pos):
+        if not getattr(self, "_user_dragging", False):
+            self.slider.setValue(pos)
+            self.elapsed_label.setText(self.format_time(pos))
+
+    def update_duration(self, duration):
+        self.slider.setRange(0, duration)
+        self.total_label.setText(self.format_time(duration))
+
+    def _slider_jump_to_click(self):
+        # Get position relative to the slider width
+        mouse_pos = self.slider.mapFromGlobal(QCursor.pos()).x()
+        ratio = mouse_pos / self.slider.width()
+        new_pos = int(ratio * self.audio.duration())
+        self.seek(new_pos)
+
+    def _on_playback_state(self, state):
+        if state == QMediaPlayer.EndOfMedia:
+            self.next_song()
+
+    def _tick_seekbar(self):
+        player = self.pitch_player.player
+        if (
+            player.playbackState() == QMediaPlayer.PlayingState
+            and (not player.isAvailable() or not player.isAvailable())
+        ):
+            print("[Tick] Detected silent playback with pitch adjustment — restarting audio")
+            self.seek(self.slider.value())
+        if self._playback_start_time is None:
+            return
+        speed = float(self.speed_combo.currentText().replace("x", ""))
+        elapsed_ms = int((monotonic() - self._playback_start_time) * 1000 * speed)
+        elapsed_ms = min(elapsed_ms, self.current_duration)
+        if not getattr(self, "_user_dragging", False):
+            self.slider.setValue(elapsed_ms)
+            self.elapsed_label.setText(self.format_time(elapsed_ms))
+        if elapsed_ms >= self.current_duration:
+            self.playback_timer.stop()
+            self.next_song()
+
+    def loop_video(self, status):
+        if status == QMediaPlayer.EndOfMedia:
+            self.bg_player.setPosition(0)
+            self.bg_player.play()
+
+    def play_song(self, song):
+        audio_path = get_audio_path(song)
+        self.audio.setSource(QUrl.fromLocalFile(str(audio_path)))
+        self.audio.play()
+        self.now_lbl.setText(f"{song['artist']} - {song['title']}")
+       
+    def toggle_play(self):
+        player = self.pitch_player.player
+        state = player.playbackState()
+
+        if state == QMediaPlayer.PlayingState:
+            player.pause()
+            self.playback_timer.stop()
+            self.is_playing = False
+        else:
+            player.play()
+            self.playback_timer.start(1000)
+            self.is_playing = True
+
+        self.update_play_pause_icon()
+   
+    def pause_song(self):
+        self.pitch_player.player.pause()
+        self.is_playing = False
+        self.update_play_pause_icon()
+
+    def play_song_at_index(self, index):
+        if index >= len(self.queue):
+            return
+            
+        self.current_index = index
+        item = self.song_list.item(index)
+        song = self.queue[index]
+
+        if item:
+            song = item.data(Qt.UserRole)
+
+        self.current_duration = song.get("length", 0)
+        self._playback_start_time = monotonic()
+        self.slider.setRange(0, self.current_duration)
+        self.total_label.setText(self.format_time(self.current_duration))
+        self.playback_timer.start()
+        path = get_audio_path(song)
+
+        # Debug logging
+        print(f"▶▶ play_song_at_index: idx={index}, file={path!r}")
+        print("    folder exists? ", os.path.isdir(song["folder"]))
+        print("    file exists?   ", os.path.isfile(path))
+
+        if not path.exists():
+            print("⚠️  File not found, removing from queue:", path)
+            
+            # Remove the missing song from queue and library
+            self.queue.pop(index)
+            if song in self.library:
+                self.library.remove(song)
+            
+            try:
+                with sqlite3.connect(DATABASE_FILE) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        "DELETE FROM songs WHERE title = ? AND artist = ? AND audio = ? AND folder = ?",
+                        (song["title"], song["artist"], song["audio"], song["folder"])
+                    )
+                    conn.commit()
+                    print(f"[Cleanup] Removed missing song from database: {song['title']}")
+            except Exception as e:
+                print(f"[Cleanup] Failed to remove from database: {e}")
+            
+            # Update the UI
+            self.populate_list(self.queue)
+            self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
+            
+            QMessageBox.warning(
+                self, 
+                "Missing File Removed", 
+                f"The file for '{song['artist']} - {song['title']}' was not found and has been removed from your queue."
+            )
+            
+            self.now_lbl.setText("—")
+            self.is_playing = False
+            self.update_play_pause_icon()
+            self.playback_timer.stop()
+
+            if self.queue:
+                if index >= len(self.queue):
+                    self.current_index = len(self.queue) - 1
+                else:
+                    self.current_index = index
+            
+            return
+
+        speed = float(self.speed_combo.currentText().replace("x", ""))
+        self.pitch_player.was_playing_before_seek = True
+        self.pitch_player.play(str(path), speed=speed, preserve_pitch=self.preserve_pitch, force_play=True)
+        self.current_duration = self.pitch_player.last_duration
+        self.slider.setRange(0, self.current_duration)
+        self.total_label.setText(self.format_time(self.current_duration))
+
+        # Update UI
+        self.now_lbl.setText(f"{song.get('title','')} — {song.get('artist','')}")
+        self.song_list.setCurrentRow(index)
+        self.is_playing = True
+        self.update_play_pause_icon()
+
+    def next_song(self):
+        if self.loop_mode == 2:  # Loop single
+            QTimer.singleShot(0, lambda: self.play_song_at_index(self.current_index))
+        else:
+            nxt = self.current_index + 1
+            if nxt >= len(self.queue):
+                if self.loop_mode == 1:  # Loop all
+                    nxt = 0
+                else:
+                    return  # End of queue, do nothing
+            self.play_song_at_index(nxt)
+
+    def prev_song(self):
+        idx = (self.current_index - 1) % len(self.queue)
+        self.play_song_at_index(idx)
+
+    def shuffle(self):
+        random.shuffle(self.queue)
+        self.populate_list(self.queue)
+        self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
+        self.song_list.setCurrentRow(self.current_index)
+    
+    def _finalize_seek_ui(self, pos):
+        self.current_duration = self.pitch_player.last_duration
+        self.slider.setRange(0, self.current_duration)
+        self.slider.setValue(pos if pos <= self.current_duration else 0)
+        self.elapsed_label.setText(self.format_time(pos if pos <= self.current_duration else 0))
+        self.total_label.setText(self.format_time(self.current_duration))
+
+    def seek(self, pos):
+
+        song = self.queue[self.current_index]
+        path = get_audio_path(song)
+        speed = float(self.speed_combo.currentText().replace("x", ""))
+
+        if self.preserve_pitch:
+            adjusted_pos = int(pos / speed)
+        else:
+            adjusted_pos = pos
+
+        self._playback_start_time = monotonic() - (pos / 1000)
+
+        safe_pos = min(pos, self.pitch_player.last_duration or pos)
+        self.pitch_player.play(str(path), speed=speed, preserve_pitch=self.preserve_pitch, start_ms=safe_pos, force_play=self.is_playing)
+
+        QTimer.singleShot(1500, lambda: self._finalize_seek_ui(pos))
