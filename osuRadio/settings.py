@@ -10,7 +10,6 @@ from PySide6.QtWidgets import (
     QPushButton, QLineEdit, QSlider,
     QDialog, QDialogButtonBox, QCheckBox, QComboBox,
 )
-from .config import *
 
 class SettingsDialog(QDialog):
     def __init__(self, parent):
