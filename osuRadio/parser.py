@@ -1,7 +1,6 @@
 import re
 from pathlib import Path
 from mutagen.mp3 import MP3
-from .config import *
 
 def read_osu_lines(path: str) -> list:
     for enc in ("utf-8", "utf-8-sig", "cp1251", "latin-1"):

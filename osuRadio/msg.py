@@ -4,7 +4,6 @@ from PySide6.QtCore import (
 from PySide6.QtWidgets import (
     QMessageBox
 )
-from .config import *
 
 def show_modal(msgbox: QMessageBox):
     msgbox.setWindowModality(Qt.ApplicationModal)

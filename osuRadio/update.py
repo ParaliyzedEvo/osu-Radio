@@ -19,8 +19,8 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QApplication, QMessageBox, QProgressDialog
 )
-from .msg import show_modal
-from .config import *
+from osuRadio.config import ICON_PATH, BASE_PATH
+from osuRadio.msg import show_modal
 
 def check_for_update(current_version, skipped_versions=None, manual_check=False, include_prerelease=False):
     url = "https://api.github.com/repos/Paraliyzedevo/osu-Radio/releases"
