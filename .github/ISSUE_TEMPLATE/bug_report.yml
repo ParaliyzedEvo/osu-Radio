@@ -42,6 +42,15 @@ body:
       description: The version you encountered this bug on. This is shown at the end of the settings overlay.
     validations:
       required: true
+  - type: dropdown
+    attributes:
+      label: What OS are you running?
+      options:
+        - Windows
+        - macOS
+        - Linux
+    validations:
+      required: true
   - type: textarea
     attributes:
       label: Additional information
