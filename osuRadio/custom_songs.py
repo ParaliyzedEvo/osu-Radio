@@ -5,6 +5,7 @@ import os
 import json
 import zipfile
 import sqlite3
+import py7zr
 from pathlib import Path
 
 from PySide6.QtCore import QTimer, Signal, QThread, Qt
@@ -334,6 +335,36 @@ class CustomSongsMixin:
             self.import_custom_audio(CUSTOM_SONGS_PATH)
 
     def export_songs_dialog(self):
+        # Show format selection dialog
+        format_dialog = QDialog(self)
+        format_dialog.setWindowTitle("Export Format")
+        format_dialog.setFixedSize(300, 150)
+        format_layout = QVBoxLayout(format_dialog)
+
+        format_label = QLabel("Choose export format:")
+        format_layout.addWidget(format_label)
+
+        # Radio buttons for format selection
+        zip_radio = QRadioButton("ZIP Archive")
+        zip_radio.setChecked(True)
+        z_radio = QRadioButton("7z Archive")
+
+        format_layout.addWidget(zip_radio)
+        format_layout.addWidget(z_radio)
+
+        format_button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        format_layout.addWidget(format_button_box)
+
+        format_button_box.accepted.connect(format_dialog.accept)
+        format_button_box.rejected.connect(format_dialog.reject)
+
+        if format_dialog.exec() != QDialog.Accepted:
+            return
+
+        # Determine selected format
+        selected_format = "zip" if zip_radio.isChecked() else "7z"
+
+        # Load previously selected songs
         previously_selected = set()
         try:
             if Path(EXPORT_STATE_FILE).exists():
@@ -342,6 +373,7 @@ class CustomSongsMixin:
         except Exception as e:
             print(f"[Export] Failed to load previous selection: {e}")
 
+        # Get songs from database
         with sqlite3.connect(DATABASE_FILE) as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT title, artist, audio, folder FROM songs")
@@ -352,9 +384,10 @@ class CustomSongsMixin:
             QMessageBox.information(self, "No Songs", "No songs found in the database.")
             return
 
+        # Song selection dialog
         dialog = QDialog(self)
-        dialog.setWindowTitle("Export Songs")
-        dialog.setMinimumSize(400, 500)
+        dialog.setWindowTitle(f"Export Songs as {selected_format.upper()}")
+        dialog.setFixedSize(600, 400)
         layout = QVBoxLayout(dialog)
 
         search_bar = QLineEdit()
@@ -368,7 +401,7 @@ class CustomSongsMixin:
         select_all_cb.setTristate(True)
         layout.addWidget(select_all_cb)
 
-        label = QLabel("Select songs to export:")
+        label = QLabel(f"Select songs to export as {selected_format.upper()}:")
         layout.addWidget(label)
 
         scroll = QScrollArea()
@@ -441,6 +474,8 @@ class CustomSongsMixin:
         if not selected_songs:
             QMessageBox.warning(self, "No Selection", "No songs selected for export.")
             return
+
+        # Save selected songs state
         try:
             selected_keys = [c.song_key for c in song_checks if c.isChecked()]
             with open(EXPORT_STATE_FILE, "w", encoding="utf-8") as f:
@@ -448,23 +483,46 @@ class CustomSongsMixin:
         except Exception as e:
             print(f"[Export] Failed to save export selection: {e}")
 
+        # File save dialog with appropriate extension
+        file_extension = "zip" if selected_format == "zip" else "7z"
+        filter_text = f"{selected_format.upper()} Files (*.{file_extension})"
+        default_filename = f"custom_songs_export.{file_extension}"
+
         path, _ = QFileDialog.getSaveFileName(
             self,
-            "Export Songs As Zip",
-            str(BASE_PATH / "custom_songs_export.zip"),
-            "Zip Files (*.zip)"
+            f"Export Songs As {selected_format.upper()}",
+            str(BASE_PATH / default_filename),
+            filter_text
         )
         if not path:
             return
+
         try:
-            with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zipf:
-                for song in selected_songs:
-                    audio_path = Path(song["folder"]) / song["audio"]
-                    if audio_path.exists():
-                        arcname = f"{song['artist']} - {song['title']}{audio_path.suffix}"
-                        zipf.write(audio_path, arcname=arcname)
-                    else:
-                        print(f"[Export] Missing: {audio_path}")
-            QMessageBox.information(self, "Export Complete", f"Exported {len(selected_songs)} songs to:\n{path}")
+            if selected_format == "zip":
+                # Create ZIP archive
+                with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zipf:
+                    for song in selected_songs:
+                        audio_path = Path(song["folder"]) / song["audio"]
+                        if audio_path.exists():
+                            arcname = f"{song['artist']} - {song['title']}{audio_path.suffix}"
+                            zipf.write(audio_path, arcname=arcname)
+                        else:
+                            print(f"[Export] Missing: {audio_path}")
+            else:
+                with py7zr.SevenZipFile(path, "w") as archive:
+                    for song in selected_songs:
+                        audio_path = Path(song["folder"]) / song["audio"]
+                        if audio_path.exists():
+                            arcname = (
+                                f"{song['artist']} - {song['title']}{audio_path.suffix}"
+                            )
+                            archive.write(audio_path, arcname)
+                        else:
+                            print(f"[Export] Missing: {audio_path}")
+
+            QMessageBox.information(self, "Export Complete", 
+                f"Exported {len(selected_songs)} songs to:\n{path}")
+
         except Exception as e:
-            QMessageBox.critical(self, "Export Failed", f"An error occurred while exporting:\n{e}")
+            QMessageBox.critical(self, "Export Failed", 
+                f"An error occurred while exporting:\n{e}")
