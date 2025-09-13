@@ -1,5 +1,7 @@
 import time, shutil, os, sys, psutil, uuid
+
 PRESERVE_FILES = {"songs.db", "settings.json"}
+PRESERVE_DIRS = {"custom_songs"}
 
 # Log file for debug info
 log_path = "updater_log.txt"
@@ -9,7 +11,55 @@ def log_print(msg):
     print(msg)
     log.write(msg + "\n")
     log.flush()
+
+def safe_copy_file(src, dst, max_retries=3):
+    """Safely copy a file with retries and better error handling."""
+    for attempt in range(max_retries):
+        try:
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            
+            if not wait_for_unlock(src, timeout=10):
+                log_print(f"⚠️ Source file locked: {src}")
+                continue
+            
+            # Try different copy methods
+            if attempt == 0:
+                shutil.copy2(src, dst)
+            elif attempt == 1:
+                shutil.copy(src, dst)
+            else:
+                with open(src, 'rb') as src_file, open(dst, 'wb') as dst_file:
+                    shutil.copyfileobj(src_file, dst_file)
+            
+            if os.path.exists(dst) and os.path.getsize(dst) > 0:
+                log_print(f"✅ Successfully copied: {os.path.basename(src)} (attempt {attempt + 1})")
+                return True
+            else:
+                log_print(f"⚠️ Copy verification failed for: {src}")
+                
+        except PermissionError as e:
+            log_print(f"⚠️ Permission denied copying {src}: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(2)
+        except OSError as e:
+            log_print(f"⚠️ OS error copying {src}: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(1)
+        except Exception as e:
+            log_print(f"⚠️ Unexpected error copying {src}: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(1)
     
+    log_print(f"❌ Failed to copy after {max_retries} attempts: {src}")
+    return False
+
+if len(sys.argv) < 5:
+    log_print("❌ Not enough arguments provided. Expected: src_dir dst_dir exe_name pid")
+    sys.exit(1)
+
+src_dir = sys.argv[1]
+dst_dir = sys.argv[2]
+exe_name = sys.argv[3]
 pid_to_wait = int(sys.argv[4])
 
 log_print(f"Waiting for PID {pid_to_wait} to exit...")
@@ -26,67 +76,90 @@ else:
 
 time.sleep(3.0)  # Increase delay for safety
 
-src_dir = sys.argv[1]
-dst_dir = sys.argv[2]
-exe_name = sys.argv[3]
-
-# Before copy
-pid = int(sys.argv[4])
-while psutil.pid_exists(pid):
-    log_print(f"Waiting for PID {pid} to exit...")
-    time.sleep(0.5)
-
 def wait_for_unlock(target_path, timeout=30):
-    # Wait until the file at target_path is no longer locked.
     start_time = time.time()
     while time.time() - start_time < timeout:
         try:
-            os.rename(target_path, target_path)  # no-op if not locked
+            # Try to open the file in append mode (less intrusive than rename)
+            with open(target_path, 'ab'):
+                pass
             return True
-        except Exception as e:
-            log_print(f"Waiting for file unlock: {target_path} - {e}")
+        except (PermissionError, OSError) as e:
+            log_print(f"Waiting for file unlock: {os.path.basename(target_path)} - {e}")
             time.sleep(0.5)
     log_print(f"❌ Timed out waiting for unlock: {target_path}")
     return False
 
-# Delete everything
-for root, dirs, files in os.walk(dst_dir, topdown=False):
+# Helper function to check if a path should be preserved
+def should_preserve_path(path, base_dir):
+    rel_path = os.path.relpath(path, base_dir)
+    path_parts = rel_path.split(os.sep)
+    
+    for part in path_parts:
+        if part in PRESERVE_DIRS:
+            return True
+    
+    filename = os.path.basename(path)
+    if filename in PRESERVE_FILES:
+        return True
+    
+    return False
+
+# Delete everything except preserved files/dirs
+for root, dirs, files in os.walk(dst_dir, topdown=True):
+    dirs[:] = [d for d in dirs if d not in PRESERVE_DIRS]
+    
     for file in files:
-        rel_path = os.path.relpath(os.path.join(root, file), dst_dir)
-        if os.path.basename(rel_path) in PRESERVE_FILES:
-            log_print(f"🛑 Preserved: {rel_path}")
+        file_path = os.path.join(root, file)
+        if should_preserve_path(file_path, dst_dir):
+            log_print(f"🛑 Preserved file: {os.path.relpath(file_path, dst_dir)}")
             continue
         try:
-            os.remove(os.path.join(root, file))
+            # Wait for file to be unlocked before deleting
+            wait_for_unlock(file_path, timeout=5)
+            os.remove(file_path)
+            log_print(f"Deleted file: {os.path.relpath(file_path, dst_dir)}")
         except Exception as e:
             log_print(f"⚠️ Failed to delete file {file}: {e}")
 
+for root, dirs, files in os.walk(dst_dir, topdown=False):
     for dir in dirs:
+        if dir in PRESERVE_DIRS:
+            log_print(f"🛑 Preserved folder: {dir}")
+            continue
+        
+        full_dir = os.path.join(root, dir)
         try:
-            full_dir = os.path.join(root, dir)
-            # Skip folders containing preserved files
-            if any(os.path.isfile(os.path.join(full_dir, f)) and f in PRESERVE_FILES for f in os.listdir(full_dir)):
-                log_print(f"🛑 Skipped deleting folder containing preserved files: {full_dir}")
-                continue
-            shutil.rmtree(full_dir, ignore_errors=True)
+            # Only remove if directory is empty
+            if not os.listdir(full_dir):
+                os.rmdir(full_dir)
+                log_print(f"Removed empty directory: {os.path.relpath(full_dir, dst_dir)}")
         except Exception as e:
-            log_print(f"⚠️ Failed to delete folder {dir}: {e}")
+            log_print(f"⚠️ Failed to remove directory {dir}: {e}")
 
 # Copy all files from src_dir into dst_dir
+copy_failures = []
 for root, dirs, files in os.walk(src_dir):
     rel_path = os.path.relpath(root, src_dir)
-    target_root = os.path.join(dst_dir, rel_path)
+    target_root = os.path.join(dst_dir, rel_path) if rel_path != "." else dst_dir
     os.makedirs(target_root, exist_ok=True)
-
+    
     for file in files:
+        if file in PRESERVE_FILES:
+            log_print(f"🛑 Preserved (not copied): {file}")
+            continue
+        
         src_file = os.path.join(root, file)
         dst_file = os.path.join(target_root, file)
+        
+        if not safe_copy_file(src_file, dst_file):
+            copy_failures.append((src_file, dst_file))
 
-        try:
-            shutil.copy2(src_file, dst_file)
-            log_print(f"Copied: {src_file} -> {dst_file}")
-        except Exception as e:
-            log_print(f"❌ Failed to copy {src_file} → {dst_file}: {e}")
+# Report copy failures
+if copy_failures:
+    log_print(f"❌ {len(copy_failures)} files failed to copy:")
+    for src, dst in copy_failures:
+        log_print(f"   Failed: {os.path.basename(src)}")
 
 # Remove temp files
 try:
@@ -97,14 +170,25 @@ except Exception as e:
 
 # Relaunch the app
 exe_path = os.path.join(dst_dir, exe_name)
-try:
-    os.execv(exe_path, [exe_path])
-    log_print(f"Launching: {exe_path}")
-except Exception as e:
-    log_print(f"Failed to relaunch app: {e}")
+log_print(f"Preparing to launch: {exe_path}")
 
+# Close log
 try:
     log.close()
-    os.remove(log_path)
-except:
-    pass
+except Exception as e:
+    print(f"Warning: Failed to close log file: {e}")
+
+# Relaunch the app (replaces this process)
+try:
+    if os.path.exists(exe_path):
+        # Ensure the exe is executable
+        if os.name == 'nt':
+            os.startfile(exe_path)
+        else:
+            os.execv(exe_path, [exe_path])
+    else:
+        print(f"❌ Executable not found: {exe_path}")
+        sys.exit(1)
+except Exception as e:
+    print(f"❌ Failed to relaunch app: {e}")
+    sys.exit(1)

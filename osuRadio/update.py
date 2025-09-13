@@ -19,8 +19,9 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QApplication, QMessageBox, QProgressDialog
 )
-from .msg import show_modal
-from .config import *
+from osuRadio import __version__
+from osuRadio.config import ICON_PATH, BASE_PATH, SETTINGS_FILE
+from osuRadio.msg import show_modal
 
 def check_for_update(current_version, skipped_versions=None, manual_check=False, include_prerelease=False):
     url = "https://api.github.com/repos/Paraliyzedevo/osu-Radio/releases"
@@ -210,3 +211,54 @@ def download_and_install_update(assets, latest_version, skipped_versions, settin
         ])
         shutil.rmtree(temp_dir, ignore_errors=True)
         sys.exit(0)
+
+class UpdateMixin:
+    def check_updates(self, manual=False):
+        current_version = __version__
+        skipped_versions = self.skipped_versions
+
+        # Skip automatic checks only if user already declined downgrade
+        if not manual and self.skip_downgrade_for_now:
+            print("[check_updates] Skipping auto update check due to earlier 'No' response.")
+            return
+
+        # Pre-release downgrade offer
+        if manual and not self.allow_prerelease and self.is_prerelease_version(current_version):
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Question)
+            msg.setWindowTitle("Stable Release Available?")
+            msg.setText("You're currently on a pre-release build. Would you like to return to the latest stable version?")
+            msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            show_modal(msg)
+            choice = msg.result()
+            if choice == QMessageBox.Yes:
+                latest_version, assets = check_for_update(
+                    current_version=current_version,
+                    skipped_versions=skipped_versions,
+                    manual_check=True,
+                    include_prerelease=False
+                )
+                if latest_version:
+                    download_and_install_update(assets, latest_version, self.skipped_versions, str(SETTINGS_FILE), self)
+                else:
+                    QMessageBox.information(self, "No Stable Update Found", "You're already on the most recent release.")
+            else:
+                self.skip_downgrade_for_now = True
+            return
+
+        # Normal update check
+        latest_version, assets = check_for_update(
+            current_version=current_version,
+            skipped_versions=skipped_versions,
+            manual_check=manual,
+            include_prerelease=self.allow_prerelease
+        )
+
+        if latest_version:
+            download_and_install_update(assets, latest_version, self.skipped_versions, str(SETTINGS_FILE), self)
+        elif manual:
+            QMessageBox.information(self, "osu!Radio", "You're already on the latest version.")
+
+    def is_prerelease_version(self, ver):
+        parsed = version.parse(ver)
+        return parsed.is_prerelease or '+' in ver

@@ -1,15 +1,18 @@
 from PySide6.QtCore import (
     Qt, QTimer,
     QPropertyAnimation, QEasingCurve, Property,
-    QSequentialAnimationGroup, QPauseAnimation
+    QSequentialAnimationGroup, QPauseAnimation, QSize,
+    QEvent
 )
 from PySide6.QtGui import (
-    QPixmap, QPainter, QColor,
+    QPixmap, QPainter, QColor, QIcon, QGuiApplication,
+    QCursor
 )
 from PySide6.QtWidgets import (
-    QWidget, QLabel, QGraphicsColorizeEffect
+    QWidget, QLabel, QGraphicsColorizeEffect, QListWidgetItem,
+    QSizePolicy, QToolTip
 )
-from .config import *
+from osuRadio.config import IMG_PATH
 
 class MarqueeLabel(QLabel):
     def __init__(self, *args):
@@ -114,3 +117,131 @@ class BackgroundWidget(QWidget):
             painter.fillRect(self.rect(), overlay)
 
         painter.end()
+
+class UiMixin:
+    def populate_list(self, songs):
+        # Update the visible song list.
+        self.song_list.clear()
+        for song in songs:
+            item = QListWidgetItem(f"{song['artist']} - {song['title']}")
+            item.setData(Qt.UserRole, song)
+            self.song_list.addItem(item)
+
+    def filter_list(self, text):
+        t = text.lower().strip()
+        if not t:
+            self.populate_list(self.queue)
+        else:
+            filtered = [
+                s for s in self.library
+                if t in s["title"].lower() or t in s["artist"].lower() or t in s["mapper"].lower()
+            ]
+            self.populate_list(filtered)
+
+    def update_play_pause_icon(self):
+        if getattr(self, "is_playing", False):
+            self.btn_play_pause.setIcon(self.pause_icon)
+        else:
+            self.btn_play_pause.setIcon(self.play_icon)
+
+    def update_loop_icon(self):
+        if self.loop_mode == 0:
+            icon = QIcon(str(IMG_PATH / "repeat-off.svg"))
+            self.loop_btn.setIcon(icon)
+            self.loop_btn.setText("")
+            self.loop_btn.setIconSize(QSize(20, 20))
+            self.loop_btn.setFixedHeight(24)
+            self.loop_btn.setFixedWidth(34)
+        elif self.loop_mode == 1:
+            # Loop all
+            icon = QIcon(str(IMG_PATH / "repeat.svg"))
+            self.loop_btn.setIcon(icon)
+            self.loop_btn.setText("")
+            self.loop_btn.setIconSize(QSize(20, 20))
+            self.loop_btn.setFixedHeight(24)
+            self.loop_btn.setFixedWidth(34)
+        elif self.loop_mode == 2:
+            # Loop one
+            icon = QIcon(str(IMG_PATH / "repeat-once.svg"))
+            self.loop_btn.setIcon(icon)
+            self.loop_btn.setText("")
+            self.loop_btn.setIconSize(QSize(20, 20))
+            self.loop_btn.setFixedHeight(24)
+            self.loop_btn.setFixedWidth(34)
+
+    def toggle_loop_mode(self):
+        self.loop_mode = (self.loop_mode + 1) % 3
+        modes = ["Loop: Off", "Loop: All", "Loop: One"]
+        self.loop_btn.setToolTip(modes[self.loop_mode])
+        self.update_loop_icon()
+
+    def apply_window_flags(self):
+        if self.resizable:
+            self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            self.setMinimumSize(480, int(480 / self.aspect_ratio))
+            self._set_dynamic_max_size()
+            self.setWindowFlags(
+                Qt.Window |
+                Qt.CustomizeWindowHint |
+                Qt.WindowTitleHint |
+                Qt.WindowMinMaxButtonsHint |
+                Qt.WindowCloseButtonHint
+            )
+        else:
+            self.setMinimumSize(self.width(), self.height())
+            self.setMaximumSize(self.width(), self.height())
+            self.setWindowFlags(
+                Qt.Window |
+                Qt.CustomizeWindowHint |
+                Qt.WindowTitleHint |
+                Qt.WindowMinimizeButtonHint |
+                Qt.WindowCloseButtonHint
+            )
+        self.show()
+
+    def _set_dynamic_max_size(self):
+        screen = QGuiApplication.primaryScreen()
+        if screen:
+            available = screen.availableGeometry()
+            self.setMaximumSize(available.width(), available.height())
+
+    def apply_theme(self, light: bool):
+        if light:
+            style = """
+                QWidget { background-color: rgba(255,255,255,200); color: black; }
+                QPushButton { background-color: #e0e0e0; }
+            """
+        else:
+            style = ""  # Use system default
+        self.centralWidget().setStyleSheet(style)
+
+    def _update_volume_label(self, v):
+        self.volume_label.setText(f"{v}%")
+
+    def slider_tooltip(self, event):
+        if hasattr(self, "current_duration") and self.current_duration > 0:
+            x = event.position().x() if hasattr(event, "position") else event.x()
+            ratio = x / self.slider.width()
+            pos = int(ratio * self.current_duration)
+            mins, secs = divmod(pos // 1000, 60)
+            QToolTip.showText(QCursor.pos(), f"{mins}:{secs:02d}")
+    
+    def eventFilter(self, source, event):
+        if source == self.slider and event.type() == QEvent.MouseMove:
+            self.slider_tooltip(event)
+        return super().eventFilter(source, event)
+    
+    def format_time(self, ms):
+        mins, secs = divmod(ms // 1000, 60)
+        return f"{mins}:{secs:02d}"
+    
+    def _wrap_focus_out(self, old_handler):
+        def new_handler(event):
+            self.change_speed(self.speed_combo.currentText())
+            if old_handler:
+                old_handler(event)
+        return new_handler
+    
+    def _update_elapsed_label(self, value):
+        if getattr(self, "_user_dragging", False) or self.is_playing:
+            self.elapsed_label.setText(self.format_time(value))
