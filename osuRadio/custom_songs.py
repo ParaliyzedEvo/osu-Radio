@@ -345,9 +345,9 @@ class CustomSongsMixin:
         format_layout.addWidget(format_label)
 
         # Radio buttons for format selection
-        zip_radio = QRadioButton("ZIP Archive")
+        zip_radio = QRadioButton("ZIP Archive (default)")
         zip_radio.setChecked(True)
-        z_radio = QRadioButton("7z Archive")
+        z_radio = QRadioButton("7z Archive (better compression)")
 
         format_layout.addWidget(zip_radio)
         format_layout.addWidget(z_radio)
