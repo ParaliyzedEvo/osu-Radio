@@ -84,8 +84,7 @@ jobs:
         if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
         run: |
           pip install gdown
-          gdown https://drive.google.com/uc?id=1meroNR-Oy6ynwhMeUENzDbwSOnqHI54c -O ffmpeg_bin.zip
-          unzip ffmpeg_bin.zip -d osuRadio/ffmpeg_bin
+          gdown https://drive.google.com/drive/folders/12uT8tAtQgsXxbXDR9YicvKqeOgL2ORwZ -O osuRadio/ffmpeg_bin --folder
 
       - name: Cache macOS icon
         id: cache-macos-icon
@@ -160,7 +159,7 @@ jobs:
           pkgbuild \
             --root dist/osu!Radio.app \
             --identifier com.paraliyzedevo.osuradio \
-            --version 1.9.0 \
+            --version 1.9.1 \
             --install-location /Applications \
             dist/osu!Radio.pkg
 
