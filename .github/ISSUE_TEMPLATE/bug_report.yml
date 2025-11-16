@@ -8,8 +8,8 @@ body:
     attributes:
       label: Updater or the app itself?
       options:
-        - Updater
         - App
+        - Updater
     validations:
       required: true
   - type: dropdown
