@@ -19,28 +19,36 @@ jobs:
             const issue = context.payload.issue;
             const body = issue.body.toLowerCase();
 
-            // Existing labels (duplicate protection)
             const existing = issue.labels.map(l => l.name.toLowerCase());
-
             const toAdd = new Set();
 
-            // ---- TYPE LABELS ----
-            if (body.includes("crash to desktop")) toAdd.add("bug");
-            if (body.includes("app behaviour")) toAdd.add("bug");
-            if (body.includes("performance")) toAdd.add("enhancement");
-            if (body.includes("cosmetic")) toAdd.add("enhancement");
-            if (body.includes("other")) toAdd.add("bug");
+            // Helper to extract the dropdown value under a given heading
+            function extractValue(title) {
+              const regex = new RegExp(`### ${title}[\\s\\S]*?\\n([^#\\n]+)`, "i");
+              const match = body.match(regex);
+              return match ? match[1].trim() : null;
+            }
 
-            // ---- APP vs UPDATER ----
-            if (body.includes("updater")) toAdd.add("updater");
+            // --- Extract dropdowns ---
+            const appOrUpdater = extractValue("Updater or the app itself\\?");
+            const type = extractValue("Type");
+            const os = extractValue("What OS are you running\\?");
 
-            // Safer detection for app (avoid matching "application" or normal text)
-            if (body.match(/(?<=\bapp\b)/)) toAdd.add("app");
+            // --- App vs Updater labels ---
+            if (appOrUpdater === "App") toAdd.add("app");
+            if (appOrUpdater === "Updater") toAdd.add("updater");
 
-            // ---- OS LABELS ----
-            if (body.includes("windows")) toAdd.add("windows");
-            if (body.includes("macos")) toAdd.add("macOS");
-            if (body.includes("linux")) toAdd.add("linux");
+            // --- Type labels ---
+            if (type === "Crash to desktop") toAdd.add("bug");
+            if (type === "App behaviour") toAdd.add("bug");
+            if (type === "Performance") toAdd.add("enhancement");
+            if (type === "Cosmetic") toAdd.add("enhancement");
+            if (type === "Other") toAdd.add("bug");
+
+            // --- OS labels ---
+            if (os === "Windows") toAdd.add("windows");
+            if (os === "macOS") toAdd.add("macOS");
+            if (os === "Linux") toAdd.add("linux");
 
             // Filter duplicates
             const finalLabels = [...toAdd].filter(l => !existing.includes(l.toLowerCase()));
