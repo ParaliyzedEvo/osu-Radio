@@ -352,7 +352,7 @@ class SettingsMixin:
             self.bg_widget.effect.setColor(QColor.fromHsv(self.hue, 255, self.brightness))
 
             if not hasattr(self, "bg_player"):
-                video_file = Path(__file__).parent / "Background Video" / "Triangles.mov"
+                video_file = Path(__file__).parent / "Background Video" / "Triangles.mp4"
                 if video_file.exists():
                     self.video_sink = QVideoSink(self)
                     self.video_sink.videoFrameChanged.connect(self.bg_widget.setFrame)

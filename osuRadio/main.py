@@ -362,7 +362,7 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
         # video background setup & loop
         if self.autoplay:
             QTimer.singleShot(300, lambda: self.play_song_at_index(0))
-        video_file = Path(__file__).parent / "Background Video" / "Triangles.mov"
+        video_file = Path(__file__).parent / "Background Video" / "Triangles.mp4"
         if video_file.exists():
             self.video_sink = QVideoSink(self)
             self.video_sink.videoFrameChanged.connect(self.bg_widget.setFrame)
