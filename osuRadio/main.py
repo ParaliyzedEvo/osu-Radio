@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QVBoxLayout, QListWidget,
     QPushButton, QLineEdit, QSlider, QStyle, QComboBox,
     QGraphicsOpacityEffect, QGridLayout, QSizePolicy,
-    QMessageBox
+    QMessageBox, QProgressDialog
 )
 from PySide6.QtMultimedia import QMediaPlayer, QVideoSink
 
@@ -387,25 +387,102 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
         osu_cache = load_cache(self.osu_folder)
         custom_cache = load_cache(BASE_PATH / "custom_songs")
         combined_cache = (osu_cache or []) + (custom_cache or [])
-        if combined_cache:
-            print(f"[startup] ✅ Loaded {len(combined_cache)} maps from cache.")
-            self.library = combined_cache
-            self.queue = list(combined_cache)
-            self.populate_list(self.queue)
-            self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
+        
+        if combined_cache and not first_setup:
+            is_valid, status_msg, missing_songs = validate_cache(self.osu_folder)
+            print(f"[startup] Cache validation: {status_msg}")
+            
+            if is_valid and not missing_songs:
+                print(f"[startup] ✅ Loaded {len(combined_cache)} maps from cache.")
+                self.library = combined_cache
+                self.queue = list(combined_cache)
+                self.populate_list(self.queue)
+                self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
+            
+            elif is_valid and missing_songs and len(missing_songs) < len(combined_cache) * 0.3:
+                print(f"[startup] ⚠️ Cache has {len(missing_songs)} missing songs")
+                
+                msg = QMessageBox(self)
+                msg.setIcon(QMessageBox.Question)
+                msg.setWindowTitle("Cache Needs Attention")
+                msg.setText(
+                    f"Your song cache has {len(missing_songs)} missing songs.\n\n"
+                    "Options:\n"
+                    "• Clean Up: Remove missing songs (quick)\n"
+                    "• Full Rescan: Scan entire folder (thorough)\n"
+                    "• Use As-Is: Continue with current cache"
+                )
+                clean_btn = msg.addButton("Clean Up", QMessageBox.AcceptRole)
+                rescan_btn = msg.addButton("Full Rescan", QMessageBox.ActionRole)
+                use_btn = msg.addButton("Use As-Is", QMessageBox.RejectRole)
+                show_modal(msg)
+                
+                clicked = msg.clickedButton()
+                
+                if clicked == clean_btn:
+                    removed = remove_missing_songs(missing_songs)
+                    osu_cache = load_cache(self.osu_folder)
+                    custom_cache = load_cache(BASE_PATH / "custom_songs")
+                    combined_cache = (osu_cache or []) + (custom_cache or [])
+                    if combined_cache:
+                        self.library = combined_cache
+                        self.queue = list(combined_cache)
+                        self.populate_list(self.queue)
+                        self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
+                        QMessageBox.information(
+                            self, "Cleanup Complete", 
+                            f"Removed {removed} missing songs.\n{len(combined_cache)} songs remaining."
+                        )
+                elif clicked == rescan_btn:
+                    self.reload_songs(force_rescan=True)
+                else:
+                    self.library = combined_cache
+                    self.queue = list(combined_cache)
+                    self.populate_list(self.queue)
+                    self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
+            
+            else:
+                print("[startup] ❌ Cache is severely outdated or corrupted")
+                
+                msg = QMessageBox(self)
+                msg.setIcon(QMessageBox.Warning)
+                msg.setWindowTitle("Cache Outdated")
+                msg.setText(
+                    f"{status_msg}\n\n"
+                    "A full rescan is strongly recommended.\n"
+                    "Would you like to scan your songs folder now?"
+                )
+                msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+                show_modal(msg)
+                
+                if msg.result() == QMessageBox.Yes:
+                    self.reload_songs(force_rescan=True)
+                else:
+                    self.library = combined_cache
+                    self.queue = list(combined_cache)
+                    self.populate_list(self.queue)
+                    self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
+        
         elif first_setup:
             print("[startup] 🛠 First setup, scanning without prompt.")
-            self.reload_songs()
+            self.reload_songs(force_rescan=True)
+        
         else:
-            print("[startup] ⚠️ No cache found — will prompt for rescan.")
+            print("[startup] ⚠️ No cache found")
+            
             msg = QMessageBox(self)
             msg.setIcon(QMessageBox.Question)
-            msg.setWindowTitle("Cache Missing")
-            msg.setText("No song cache was found.\nWould you like to scan your osu! songs folder?")
+            msg.setWindowTitle("Initial Setup")
+            msg.setText(
+                "No song cache was found.\n\n"
+                "osu!Radio needs to scan your songs folder to build a library.\n"
+                "This may take a few minutes depending on your library size.\n\n"
+                "Would you like to scan now?"
+            )
             msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
             show_modal(msg)
-            prompt = msg.result()
-            if prompt == QMessageBox.Yes:
+            
+            if msg.result() == QMessageBox.Yes:
                 json_path = BASE_PATH / "library_cache.json"
                 if json_path.exists():
                     try:
@@ -413,23 +490,42 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
                         with open(json_path, "r", encoding="utf-8") as f:
                             data = json.load(f)
                             maps = data.get("maps", []) if isinstance(data, dict) else []
-                        if isinstance(maps, list):
+                        
+                        if isinstance(maps, list) and maps:
+                            import_progress = QProgressDialog(
+                                "Importing legacy cache...", 
+                                None, 0, len(maps), self
+                            )
+                            import_progress.setWindowModality(Qt.ApplicationModal)
+                            import_progress.setWindowTitle("osu!Radio - Importing")
+                            import_progress.show()
+                            
                             save_cache(self.osu_folder, maps)
-                            for s in maps:
-                                self.progress_label.setText(f"🎵 Found beatmap: {s['artist']} - {s['title']}")
+                            
+                            for i, s in enumerate(maps):
+                                import_progress.setValue(i)
                                 QApplication.processEvents()
+                            
+                            import_progress.close()
                             json_path.unlink()
+                            
                             cached = load_cache(self.osu_folder)
                             if cached:
                                 self.library = cached
                                 self.queue = list(cached)
                                 self.populate_list(self.queue)
                                 self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
+                                
+                                QMessageBox.information(
+                                    self, "Import Complete",
+                                    f"Successfully imported {len(cached)} songs from legacy cache!"
+                                )
                                 return
                     except Exception as e:
                         print(f"[startup] Failed to import from legacy JSON: {e}")
+                
                 print("[startup] Starting full scan...")
-                self.reload_songs()
+                self.reload_songs(force_rescan=True)
             else:
                 sys.exit()
             

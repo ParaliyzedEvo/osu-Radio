@@ -1,11 +1,11 @@
-__version__ = "1.9.1"
+__version__ = "1.9.2"
 __author__ = "Paraliyzed_evo"
 
 # Audio
 from osuRadio.audio import PitchAdjustedPlayer, get_audio_duration, PlayerMixin
 
 # Database
-from osuRadio.db import load_cache, save_cache, get_audio_path
+from osuRadio.db import load_cache, save_cache, get_audio_path, remove_missing_songs, validate_cache, update_folder_mtime
 
 # Settings & UI
 from osuRadio.settings import SettingsDialog, SettingsMixin
@@ -32,7 +32,7 @@ __all__ = [
     "PitchAdjustedPlayer", "get_audio_duration", "PlayerMixin",
 
     # Database
-    "load_cache", "save_cache", "get_audio_path",
+    "load_cache", "save_cache", "get_audio_path", "remove_missing_songs", "validate_cache", "update_folder_mtime",
 
     # Settings & UI
     "SettingsDialog", "SettingsMixin", "MarqueeLabel", "BackgroundWidget", "UiMixin",
