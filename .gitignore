@@ -182,4 +182,4 @@ test/
 ffmpeg_bin/
 custom_songs/
 test2/
-run.bat
+*.bat
