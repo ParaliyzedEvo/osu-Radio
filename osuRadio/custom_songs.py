@@ -12,7 +12,7 @@ from PySide6.QtCore import QTimer, Signal, QThread, Qt
 from PySide6.QtWidgets import (
     QLabel, QButtonGroup, QRadioButton, QVBoxLayout, QProgressBar, QLineEdit,
     QDialog, QDialogButtonBox, QMessageBox, QCheckBox, QScrollArea, QWidget,
-    QFileDialog
+    QFileDialog, QApplication, QHBoxLayout
 )
 
 from osuRadio.audio import get_audio_duration
@@ -22,6 +22,48 @@ from osuRadio.config import (
     CUSTOM_SONGS_PATH, DATABASE_FILE, IS_WINDOWS, get_yt_dlp_path,
     BASE_PATH, EXPORT_STATE_FILE
 )
+
+
+class ExportWorker(QThread):
+    progress_updated = Signal(int, str)  # (current_count, current_file)
+    export_finished = Signal(bool, str)  # (success, message)
+
+    def __init__(self, selected_songs, output_path, archive_format):
+        super().__init__()
+        self.selected_songs = selected_songs
+        self.output_path = output_path
+        self.archive_format = archive_format
+
+    def run(self):
+        try:
+            total = len(self.selected_songs)
+            
+            if self.archive_format == "zip":
+                with zipfile.ZipFile(self.output_path, "w", zipfile.ZIP_DEFLATED) as zipf:
+                    for i, song in enumerate(self.selected_songs, 1):
+                        audio_path = Path(song["folder"]) / song["audio"]
+                        if audio_path.exists():
+                            arcname = f"{song['artist']} - {song['title']}{audio_path.suffix}"
+                            self.progress_updated.emit(i, arcname)
+                            zipf.write(audio_path, arcname=arcname)
+                        else:
+                            print(f"[Export] Missing: {audio_path}")
+                            
+            else:  # 7z
+                with py7zr.SevenZipFile(self.output_path, "w") as archive:
+                    for i, song in enumerate(self.selected_songs, 1):
+                        audio_path = Path(song["folder"]) / song["audio"]
+                        if audio_path.exists():
+                            arcname = f"{song['artist']} - {song['title']}{audio_path.suffix}"
+                            self.progress_updated.emit(i, arcname)
+                            archive.write(audio_path, arcname)
+                        else:
+                            print(f"[Export] Missing: {audio_path}")
+            
+            self.export_finished.emit(True, f"Exported {total} songs successfully!")
+            
+        except Exception as e:
+            self.export_finished.emit(False, f"Export failed: {str(e)}")
 
 
 class CustomSongsMixin:
@@ -397,9 +439,12 @@ class CustomSongsMixin:
         count_label = QLabel("0 / 0 selected")
         layout.addWidget(count_label)
 
+        # Checkbox for bulk operations
+        checkbox_row = QHBoxLayout()
         select_all_cb = QCheckBox("Select All")
-        select_all_cb.setTristate(True)
-        layout.addWidget(select_all_cb)
+        checkbox_row.addWidget(select_all_cb)
+        checkbox_row.addStretch()
+        layout.addLayout(checkbox_row)
 
         label = QLabel(f"Select songs to export as {selected_format.upper()}:")
         layout.addWidget(label)
@@ -427,27 +472,52 @@ class CustomSongsMixin:
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         layout.addWidget(button_box)
 
-        def update_select_all_state():
+        def update_count_label():
             visible_checks = [cb for cb in song_checks if cb.isVisible()]
-            checked = [cb for cb in visible_checks if cb.isChecked()]
+            checked = sum(1 for cb in visible_checks if cb.isChecked())
             total = len(visible_checks)
-            count_label.setText(f"{len(checked)} / {total} selected")
+            count_label.setText(f"{checked} / {total} selected")
 
+        select_all_previous_state = [Qt.Unchecked]
+
+        def handle_select_all(state):
+            QApplication.setOverrideCursor(Qt.WaitCursor)
             select_all_cb.blockSignals(True)
-            if len(checked) == 0:
+
+            # Determine target based on what we're transitioning from
+            if select_all_previous_state[0] == Qt.Checked:
+                target_state = False
+            else:
+                target_state = True
+            
+            for i, cb in enumerate(song_checks):
+                cb.blockSignals(True)
+                cb.setChecked(target_state)
+                cb.blockSignals(False)
+                if i % 100 == 0:
+                    QApplication.processEvents()
+            
+            select_all_cb.blockSignals(False)
+            QApplication.restoreOverrideCursor()
+            update_count_label()
+            update_bulk_checkbox_state()
+            select_all_previous_state[0] = select_all_cb.checkState()
+
+        def update_bulk_checkbox_state():
+            all_checks = song_checks
+            all_checked = sum(1 for cb in song_checks if cb.isChecked())
+            select_all_cb.blockSignals(True)
+            
+            if all_checked == 0:
                 select_all_cb.setCheckState(Qt.Unchecked)
-            elif len(checked) == total:
+            elif all_checked == len(all_checks):
                 select_all_cb.setCheckState(Qt.Checked)
             else:
                 select_all_cb.setCheckState(Qt.PartiallyChecked)
+            
+            # Update the tracked state whenever the state changes
+            select_all_previous_state[0] = select_all_cb.checkState()
             select_all_cb.blockSignals(False)
-
-        def select_all_toggled():
-            state = select_all_cb.checkState()
-            checked_state = (state == Qt.Checked) or (state == Qt.PartiallyChecked)
-            for cb in (c for c in song_checks if c.isVisible()):
-                cb.setChecked(checked_state)
-            update_select_all_state()
 
         def filter_checkboxes(text: str):
             lower = text.lower()
@@ -455,14 +525,18 @@ class CustomSongsMixin:
                 song = cb.song_data
                 visible = lower in song["title"].lower() or lower in song["artist"].lower()
                 cb.setVisible(visible)
-            update_select_all_state()
+            update_count_label()
+            update_bulk_checkbox_state()
+
+        select_all_cb.setTristate(True)
 
         for cb in song_checks:
-            cb.toggled.connect(update_select_all_state)
-        select_all_cb.stateChanged.connect(lambda _s: select_all_toggled())
+            cb.toggled.connect(lambda: (update_count_label(), update_bulk_checkbox_state()))
+        
+        select_all_cb.stateChanged.connect(handle_select_all)
         search_bar.textChanged.connect(filter_checkboxes)
 
-        QTimer.singleShot(0, update_select_all_state)
+        QTimer.singleShot(0, lambda: (update_count_label(), update_bulk_checkbox_state()))
 
         button_box.accepted.connect(dialog.accept)
         button_box.rejected.connect(dialog.reject)
@@ -475,7 +549,6 @@ class CustomSongsMixin:
             QMessageBox.warning(self, "No Selection", "No songs selected for export.")
             return
 
-        # Save selected songs state
         try:
             selected_keys = [c.song_key for c in song_checks if c.isChecked()]
             with open(EXPORT_STATE_FILE, "w", encoding="utf-8") as f:
@@ -497,32 +570,45 @@ class CustomSongsMixin:
         if not path:
             return
 
-        try:
-            if selected_format == "zip":
-                # Create ZIP archive
-                with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zipf:
-                    for song in selected_songs:
-                        audio_path = Path(song["folder"]) / song["audio"]
-                        if audio_path.exists():
-                            arcname = f"{song['artist']} - {song['title']}{audio_path.suffix}"
-                            zipf.write(audio_path, arcname=arcname)
-                        else:
-                            print(f"[Export] Missing: {audio_path}")
+        # Create progress dialog
+        progress_dialog = QDialog(self)
+        progress_dialog.setWindowTitle("Exporting Songs")
+        progress_dialog.setFixedSize(500, 150)
+        progress_dialog.setWindowModality(Qt.ApplicationModal)
+        progress_layout = QVBoxLayout(progress_dialog)
+        progress_label = QLabel(f"Creating {selected_format.upper()} archive...")
+        progress_layout.addWidget(progress_label)
+        progress_bar = QProgressBar()
+        progress_bar.setRange(0, len(selected_songs))
+        progress_bar.setValue(0)
+        progress_layout.addWidget(progress_bar)
+        current_file_label = QLabel("")
+        current_file_label.setWordWrap(True)
+        progress_layout.addWidget(current_file_label)
+        progress_dialog.show()
+        QApplication.processEvents()
+
+        # Create worker thread for export
+        worker = ExportWorker(selected_songs, path, selected_format)
+        
+        def on_progress(count, filename):
+            progress_bar.setValue(count)
+            current_file_label.setText(f"Adding: {filename}")
+            QApplication.processEvents()
+        
+        def on_finished(success, message):
+            progress_dialog.close()
+            if success:
+                QMessageBox.information(self, "Export Complete", 
+                    f"{message}\nSaved to:\n{path}")
             else:
-                with py7zr.SevenZipFile(path, "w") as archive:
-                    for song in selected_songs:
-                        audio_path = Path(song["folder"]) / song["audio"]
-                        if audio_path.exists():
-                            arcname = (
-                                f"{song['artist']} - {song['title']}{audio_path.suffix}"
-                            )
-                            archive.write(audio_path, arcname)
-                        else:
-                            print(f"[Export] Missing: {audio_path}")
-
-            QMessageBox.information(self, "Export Complete", 
-                f"Exported {len(selected_songs)} songs to:\n{path}")
-
-        except Exception as e:
-            QMessageBox.critical(self, "Export Failed", 
-                f"An error occurred while exporting:\n{e}")
+                QMessageBox.critical(self, "Export Failed", message)
+        
+        worker.progress_updated.connect(on_progress)
+        worker.export_finished.connect(on_finished)
+        worker.start()
+        
+        # Keep dialog open until worker finishes
+        while worker.isRunning():
+            QApplication.processEvents()
+            worker.wait(50)
