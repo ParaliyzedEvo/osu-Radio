@@ -142,6 +142,18 @@ jobs:
           cp 'osuRadio/Osu!RadioIcon.png' 'osu!Radio-linux/'
           tar -czf 'osu!Radio.tar.gz' -C 'osu!Radio-linux' .
 
+      - name: Package output (macOS)
+        if: matrix.os == 'macos-latest' || matrix.os == 'macos-latest-large'
+        run: |
+          if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
+            DIST_PATH="dist-arm"
+          else
+            DIST_PATH="dist-x64"
+          fi
+          cp -r 'osuRadio/Background Video' "${DIST_PATH}/osu!Radio.app/Contents/Resources/"
+          cp -r 'osuRadio/ffmpeg_bin' "${DIST_PATH}/osu!Radio.app/Contents/Resources/"
+          cp -r 'osuRadio/img' "${DIST_PATH}/osu!Radio.app/Contents/Resources/"
+
       - name: Upload build artifacts (Windows)
         if: matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v4
