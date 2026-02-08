@@ -204,13 +204,13 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: osu!Radio-macos-arm
-          path: dist-arm
+          path: dist-arm/osu!Radio.app
       
       - name: Download Intel build
         uses: actions/download-artifact@v4
         with:
           name: osu!Radio-macos-x64
-          path: dist-x64
+          path: dist-x64/osu!Radio.app
       
       - name: Create universal binary
         run: |
