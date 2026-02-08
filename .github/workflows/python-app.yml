@@ -238,9 +238,6 @@ jobs:
               lipo -create "$arm_bin" "$x64_bin" -output "$out_bin"
             fi
           done
-          cp -r "osuRadio/Background Video" "dist-universal/osu!Radio.app/Contents/Resources/"
-          cp -r "osuRadio/ffmpeg_bin" "dist-universal/osu!Radio.app/Contents/Resources/"
-          cp -r "osuRadio/img" "dist-universal/osu!Radio.app/Contents/Resources/"
       
       - name: Install create-dmg
         run: brew install create-dmg
