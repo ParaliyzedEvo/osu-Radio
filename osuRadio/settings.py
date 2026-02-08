@@ -351,8 +351,10 @@ class SettingsMixin:
             self.bg_widget.effect.setEnabled(True)
             self.bg_widget.effect.setColor(QColor.fromHsv(self.hue, 255, self.brightness))
 
-            if not hasattr(self, "bg_player"):
-                video_file = Path(__file__).parent / "Background Video" / "Triangles.mp4"
+            if not hasattr(self, "bg_player") or not self.bg_player:
+                from osuRadio.config import resource_path
+                video_file = resource_path("Background Video", "Triangles.mp4")
+                
                 if video_file.exists():
                     self.video_sink = QVideoSink(self)
                     self.video_sink.videoFrameChanged.connect(self.bg_widget.setFrame)
@@ -360,18 +362,30 @@ class SettingsMixin:
                     self.bg_player.setVideoOutput(self.video_sink)
                     self.bg_player.setSource(QUrl.fromLocalFile(str(video_file)))
                     self.bg_player.mediaStatusChanged.connect(self.loop_video)
-
-            self.bg_player.play()
+                    self.bg_player.play()
+                else:
+                    print(f"[Settings] Background video not found at: {video_file}")
+            elif hasattr(self, "bg_player"):
+                self.bg_player.play()
 
         else:
-            # Remove video and disable QGraphicsColorizeEffect
-            if hasattr(self, "bg_player"):
-                self.bg_player.stop()
-                self.bg_player.deleteLater()
-                del self.bg_player
-            if hasattr(self, "video_sink"):
-                self.video_sink.deleteLater()
-                del self.video_sink
+            if hasattr(self, "bg_player") and self.bg_player:
+                try:
+                    self.bg_player.stop()
+                except:
+                    pass
+                try:
+                    self.bg_player.deleteLater()
+                except:
+                    pass
+                self.bg_player = None
+                
+            if hasattr(self, "video_sink") and self.video_sink:
+                try:
+                    self.video_sink.deleteLater()
+                except:
+                    pass
+                self.video_sink = None
 
             self.bg_widget.effect.setEnabled(False)
             
