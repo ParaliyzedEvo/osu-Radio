@@ -420,7 +420,30 @@ class CustomSongsMixin:
             cursor = conn.cursor()
             cursor.execute("SELECT title, artist, audio, folder FROM songs")
             rows = cursor.fetchall()
-            songs = [{"title": r[0], "artist": r[1], "audio": r[2], "folder": r[3]} for r in rows]
+            songs = []
+            seen_paths = set()
+            
+            for r in rows:
+                title, artist, audio, folder = r[0], r[1], r[2], r[3]
+                audio_path = Path(folder) / audio
+                
+                # Skip if file doesn't exist
+                if not audio_path.exists():
+                    continue
+                
+                # Skip if we've already added this exact file path
+                audio_path_str = str(audio_path.resolve())
+                if audio_path_str in seen_paths:
+                    continue
+                    
+                seen_paths.add(audio_path_str)
+                songs.append({
+                    "title": title,
+                    "artist": artist,
+                    "audio": audio,
+                    "folder": folder,
+                    "full_path": audio_path_str  # Store for uniqueness
+                })
 
         if not songs:
             QMessageBox.information(self, "No Songs", "No songs found in the database.")
@@ -458,7 +481,7 @@ class CustomSongsMixin:
         for song in songs:
             checkbox = QCheckBox(f"{song['artist']} - {song['title']}")
             checkbox.song_data = song
-            unique_key = f"{song['title']}|{song['artist']}|{song['audio']}"
+            unique_key = song.get("full_path", f"{song['folder']}/{song['audio']}")
             checkbox.song_key = unique_key
             if unique_key in previously_selected:
                 checkbox.setChecked(True)
