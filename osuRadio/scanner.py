@@ -29,6 +29,8 @@ class LibraryScanner(QThread):
         self.progress_update.emit(f"🔍 Scanning folder... (found {total_files} .osu files)")
         
         processed = 0
+        skipped_no_audio = 0
+        
         for root, _, files in os.walk(self.folder):
             if self.isInterruptionRequested():
                 print("[LibraryScanner] Interruption requested, stopping scan.")
@@ -40,6 +42,7 @@ class LibraryScanner(QThread):
                     return
                     
                 if fn.lower().endswith(".osu"):
+                    processed += 1
                     full_path = os.path.join(root, fn)
                     try:
                         s = OsuParser.parse(full_path)
@@ -52,14 +55,18 @@ class LibraryScanner(QThread):
                             audio_path = Path(folder) / audio_file
                             if not audio_path.exists():
                                 print(f"[LibraryScanner] Skipping {title} - audio file not found: {audio_file}")
+                                skipped_no_audio += 1
                                 continue
+                        elif not audio_file:
+                            print(f"[LibraryScanner] Skipping {title} - no audio file specified")
+                            skipped_no_audio += 1
+                            continue
                         
                         key = (title, artist, mapper)
                         if key not in uniq:
                             uniq[key] = s
                             
-                        # Update progress every 10 files or on last file
-                        if processed % 10 == 0 or processed == total_files:
+                        if processed % 10 == 0:
                             msg = f"🎵 Processing: {artist} - {title} ({processed}/{total_files})"
                             self.progress_update.emit(msg)
                             
@@ -71,8 +78,10 @@ class LibraryScanner(QThread):
             return
 
         library = list(uniq.values())
-        self.progress_update.emit(f"💾 Saving {len(library)} beatmaps to cache...")
-        print(f"[LibraryScanner] Scan complete. Found {len(library)} unique beatmaps.")
+        self.progress_update.emit(f"💾 Saving {len(library)} valid beatmaps to cache...")
+        if skipped_no_audio > 0:
+            print(f"[LibraryScanner] Skipped {skipped_no_audio} beatmaps with missing/no audio files.")
+        
         save_cache(self.folder, library)
         
         if self.isInterruptionRequested():
@@ -220,6 +229,9 @@ class LibraryMixin:
                 valid_library.append(song)
             else:
                 missing_count += 1
+                print(f"[reload_complete] WARNING: Song in cache but audio missing: {song.get('title')}")
+        
+        library = valid_library
         
         if missing_count > 0:
             print(f"[reload_complete] ⚠️ Found {len(library)} beatmaps, but {missing_count} have missing audio files")
