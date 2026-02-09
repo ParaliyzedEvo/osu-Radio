@@ -87,25 +87,46 @@ class LibraryMixin:
         
         if not force_rescan and is_valid:
             if missing_songs:
-                print(f"[reload_songs] Cleaning up {len(missing_songs)} missing songs from cache")
-                removed = remove_missing_songs(missing_songs)
+                print(f"[reload_songs] Cache has {len(missing_songs)} missing songs")
                 
-                osu_cache = load_cache(self.osu_folder)
-                custom_cache = load_cache(BASE_PATH / "custom_songs")
-                combined_cache = (osu_cache or []) + (custom_cache or [])
+                msg = QMessageBox(self)
+                msg.setIcon(QMessageBox.Question)
+                msg.setWindowTitle("Cache Cleanup Available")
+                msg.setText(
+                    f"Found {len(missing_songs)} missing songs in cache.\n\n"
+                    "What would you like to do?"
+                )
+                clean_btn = msg.addButton("Clean Up (Quick)", QMessageBox.AcceptRole)
+                rescan_btn = msg.addButton("Full Rescan (Thorough)", QMessageBox.ActionRole)
+                cancel_btn = msg.addButton("Cancel", QMessageBox.RejectRole)
+                show_modal(msg)
                 
-                if combined_cache:
-                    self.library = combined_cache
-                    self.queue = list(combined_cache)
-                    self.populate_list(self.queue)
-                    self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
+                clicked = msg.clickedButton()
+                
+                if clicked == clean_btn:
+                    # Just remove missing songs
+                    removed = remove_missing_songs(missing_songs)
+                    osu_cache = load_cache(self.osu_folder)
+                    custom_cache = load_cache(BASE_PATH / "custom_songs")
+                    combined_cache = (osu_cache or []) + (custom_cache or [])
                     
-                    QMessageBox.information(
-                        self, 
-                        "Cache Cleaned",
-                        f"Removed {removed} missing song(s) from cache.\n"
-                        f"Library now has {len(combined_cache)} songs."
-                    )
+                    if combined_cache:
+                        self.library = combined_cache
+                        self.queue = list(combined_cache)
+                        self.populate_list(self.queue)
+                        self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
+                        
+                        QMessageBox.information(
+                            self, 
+                            "Cleanup Complete",
+                            f"Removed {removed} missing song(s) from cache.\n"
+                            f"Library now has {len(combined_cache)} songs."
+                        )
+                        return
+                        
+                elif clicked == rescan_btn:
+                    print("[reload_songs] User requested full rescan")
+                else:
                     return
             else:
                 print("[reload_songs] Cache is valid, loading from cache")
@@ -114,18 +135,24 @@ class LibraryMixin:
                 combined_cache = (osu_cache or []) + (custom_cache or [])
                 
                 if combined_cache:
-                    self.library = combined_cache
-                    self.queue = list(combined_cache)
-                    self.populate_list(self.queue)
-                    self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
-                    
-                    QMessageBox.information(
-                        self,
-                        "Cache Loaded",
-                        f"Loaded {len(combined_cache)} songs from cache.\n"
-                        "No rescan needed."
+                    msg = QMessageBox(self)
+                    msg.setIcon(QMessageBox.Question)
+                    msg.setWindowTitle("Cache is Up to Date")
+                    msg.setText(
+                        f"Your song cache is up to date with {len(combined_cache)} songs.\n\n"
+                        "Do you want to rescan anyway?\n"
                     )
-                    return
+                    msg.setStandardButtons(QMessageBox.Yes | QMessageBox.Cancel)
+                    show_modal(msg)
+                    
+                    if msg.result() == QMessageBox.Yes:
+                        print("[reload_songs] User requested force rescan despite valid cache")
+                    else:
+                        self.library = combined_cache
+                        self.queue = list(combined_cache)
+                        self.populate_list(self.queue)
+                        self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
+                        return
         
         print(f"[reload_songs] {'Force rescanning' if force_rescan else 'Cache invalid, rescanning'} folder: {self.osu_folder}")
         
