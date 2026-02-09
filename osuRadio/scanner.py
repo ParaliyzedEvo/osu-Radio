@@ -41,15 +41,20 @@ class LibraryScanner(QThread):
                     
                 if fn.lower().endswith(".osu"):
                     full_path = os.path.join(root, fn)
-                    processed += 1
-                    
                     try:
                         s = OsuParser.parse(full_path)
                         title = s.get("title", f"Unknown Title - {fn}")
                         artist = s.get("artist", "Unknown Artist")
                         mapper = s.get("mapper", "Unknown Mapper")
-                        key = (title, artist, mapper)
+                        audio_file = s.get("audio", "")
+                        folder = s.get("folder", "")
+                        if audio_file and folder:
+                            audio_path = Path(folder) / audio_file
+                            if not audio_path.exists():
+                                print(f"[LibraryScanner] Skipping {title} - audio file not found: {audio_file}")
+                                continue
                         
+                        key = (title, artist, mapper)
                         if key not in uniq:
                             uniq[key] = s
                             
@@ -206,7 +211,20 @@ class LibraryMixin:
         self._scanner.start()
         
     def _on_reload_complete(self, library):
-        print(f"[reload_complete] ✅ Found {len(library)} songs from osu! folder.")
+        valid_library = []
+        missing_count = 0
+        
+        for song in library:
+            audio_path = Path(song.get("folder", "")) / song.get("audio", "")
+            if audio_path.exists():
+                valid_library.append(song)
+            else:
+                missing_count += 1
+        
+        if missing_count > 0:
+            print(f"[reload_complete] ⚠️ Found {len(library)} beatmaps, but {missing_count} have missing audio files")
+        else:
+            print(f"[reload_complete] ✅ Found {len(valid_library)} songs from osu! folder.")
         
         CUSTOM_SONGS_PATH = BASE_PATH / "custom_songs"
         if CUSTOM_SONGS_PATH.exists() and any(CUSTOM_SONGS_PATH.iterdir()):
@@ -246,18 +264,16 @@ class LibraryMixin:
             osu_count = len(library)
             custom_count = len(combined_library) - len(library)
             
-            if custom_count > 0:
-                msg_text = (
-                    f"✅ Successfully imported {len(combined_library)} songs!\n\n"
-                    f"• osu! beatmaps: {osu_count}\n"
-                    f"• Custom songs: {custom_count}\n\n"
-                    f"Your library is now up to date."
-                )
-            else:
-                msg_text = (
-                    f"✅ Successfully imported {osu_count} beatmaps!\n\n"
-                    f"Your library is now up to date."
-                )
+            msg_text = (
+                f"✅ Successfully imported {len(combined_library)} songs!\n\n"
+                f"• osu! beatmaps: {osu_count}\n"
+                f"• Custom songs: {custom_count}\n"
+            )
+            
+            if missing_count > 0:
+                msg_text += f"\n⚠️ Skipped {missing_count} beatmaps with missing audio files"
+            
+            msg_text += "\n\nYour library is now up to date."
             
             QMessageBox.information(self, "Import Complete", msg_text)
     
