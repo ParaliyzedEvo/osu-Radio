@@ -544,18 +544,25 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
         player = self.pitch_player.player
         if (
             player.playbackState() == QMediaPlayer.PlayingState
-            and (not player.isAvailable() or not player.isAvailable())
+            and not player.isAvailable()
         ):
-            print("[Tick] Detected silent playback with pitch adjustment — restarting audio")
             self.seek(self.slider.value())
+            return
+        
         if self._playback_start_time is None:
             return
-        speed = float(self.speed_combo.currentText().replace("x", ""))
-        elapsed_ms = int((monotonic() - self._playback_start_time) * 1000 * speed)
+        
+        if self.preserve_pitch:
+            speed = self.pitch_player.playback_rate
+            elapsed_ms = int((monotonic() - self._playback_start_time) * 1000 * speed)
+        else:
+            elapsed_ms = int((monotonic() - self._playback_start_time) * 1000 * self.pitch_player.playback_rate)
+        
         elapsed_ms = min(elapsed_ms, self.current_duration)
         if not getattr(self, "_user_dragging", False):
             self.slider.setValue(elapsed_ms)
             self.elapsed_label.setText(self.format_time(elapsed_ms))
+
         if elapsed_ms >= self.current_duration:
             self.playback_timer.stop()
             self.next_song()
@@ -567,32 +574,36 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
                 raise ValueError("Speed must be positive.")
 
             if abs(rate - self.pitch_player.playback_rate) < 0.01:
-                return  # No meaningful change, skip
+                return
 
             self.playback_rate = rate
-
-            if self.preserve_pitch:
-                # Use FFmpeg to reprocess the audio
-                song = self.queue[self.current_index]
-                path = get_audio_path(song)
-                self.pitch_player.play(
-                    str(path),
-                    speed=rate,
-                    preserve_pitch=True,
-                    start_ms=self.slider.value(),
-                    force_play=self.is_playing
-                )
-                self.current_duration = self.pitch_player.last_duration
-                self.slider.setRange(0, self.current_duration)
-                self.total_label.setText(self.format_time(self.current_duration))
-            else:
-                # Just change playback rate directly
-                self.pitch_player.player.setPlaybackRate(rate)
-                print(f"[Playback Speed] Set to {rate}x")
-                if self.is_playing:
-                    self.seek(self.slider.value())
-
-            # Update the dropdown UI
+            
+            # Get current song and position
+            if not self.queue or self.current_index >= len(self.queue):
+                return
+                
+            song = self.queue[self.current_index]
+            path = get_audio_path(song)
+            current_pos = self.slider.value()
+            
+            print(f"[Speed Change] Changing from {self.pitch_player.playback_rate}x to {rate}x")
+            
+            # Replay the song at new speed from current position
+            self.pitch_player.play(
+                str(path),
+                speed=rate,
+                preserve_pitch=self.preserve_pitch,
+                start_ms=current_pos,
+                force_play=self.is_playing
+            )
+            
+            # Update UI
+            self.current_duration = self.pitch_player.last_duration
+            self.slider.setRange(0, self.current_duration)
+            self.total_label.setText(self.format_time(self.current_duration))
+            
+            # Reset playback timer
+            self._playback_start_time = monotonic() - (current_pos / 1000 / rate)
             default_speeds = ["0.5x", "0.75x", "1x", "1.25x", "1.5x", "2x"]
             self.speed_combo.blockSignals(True)
             self.speed_combo.clear()
@@ -603,7 +614,6 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
         except ValueError:
             QMessageBox.warning(self, "Invalid Speed", "Enter a number above 0 (e.g., 1.25).")
             self.speed_combo.setEditText("1x")
-            self.pitch_player.player.setPlaybackRate(1.0)
         
     def set_volume(self, v):
         self.audio_out.setVolume(v / 100)

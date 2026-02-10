@@ -109,7 +109,7 @@ class PitchAdjustedPlayer:
             and self.playback_rate == speed
             and self.preserve_pitch == preserve_pitch
         ):
-            print(f"[Resume] Resuming existing playback at {self.player.position()} ms")
+            print(f"[Resume] Resuming existing playback at {start_ms} ms")
             if start_ms > 0:
                 self.player.setPosition(start_ms)
             self.player.play()
@@ -132,20 +132,22 @@ class PitchAdjustedPlayer:
             processed_file, _ = process_audio(input_path, speed=speed, adjust_pitch=True)
             self.current_temp = Path(processed_file)
             file_url = QUrl.fromLocalFile(str(processed_file))
+            self.last_duration = self._get_wav_duration_ms(str(processed_file))
             self.player.setSource(file_url)
-            self._pending_play = True  # This triggers _start_after_load
+            self.player.setPlaybackRate(1.0)  # Always 1.0 when using FFmpeg
+            self._pending_play = True
         else:
             file_url = QUrl.fromLocalFile(str(input_path))
+            original_duration = self._get_wav_duration_ms(str(input_path))
+            self.last_duration = int(original_duration / speed)
             self.player.setSource(file_url)
             self.player.setPlaybackRate(speed)
             self.player.setPosition(start_ms)
             self.player.play()
-            print(f"[QMediaPlayer] 🎵 Now playing: {file_url.toString()}")
             self.current_temp = None
             self._pending_play = False
 
         self.last_temp = self.current_temp
-        self.last_duration = self._get_wav_duration_ms(file_url.toLocalFile())
     
     def _delayed_start(self):
         if self.was_playing_before_seek:
@@ -341,11 +343,8 @@ class PlayerMixin:
             return
             
         self.current_index = index
-        item = self.song_list.item(index)
         song = self.queue[index]
-
-        if item:
-            song = item.data(Qt.UserRole)
+        path = get_audio_path(song)
 
         self.current_duration = song.get("length", 0)
         self._playback_start_time = monotonic()
@@ -406,8 +405,12 @@ class PlayerMixin:
         self.pitch_player.was_playing_before_seek = True
         self.pitch_player.play(str(path), speed=speed, preserve_pitch=self.preserve_pitch, force_play=True)
         self.current_duration = self.pitch_player.last_duration
+        self._playback_start_time = monotonic()
         self.slider.setRange(0, self.current_duration)
         self.total_label.setText(self.format_time(self.current_duration))
+        self.elapsed_label.setText("0:00")
+        self.slider.setValue(0)
+        self.playback_timer.start()
 
         # Update UI
         self.now_lbl.setText(f"{song.get('title','')} — {song.get('artist','')}")
@@ -445,19 +448,19 @@ class PlayerMixin:
         self.total_label.setText(self.format_time(self.current_duration))
 
     def seek(self, pos):
-
+        if not self.queue or self.current_index >= len(self.queue):
+            return
+        
         song = self.queue[self.current_index]
         path = get_audio_path(song)
         speed = float(self.speed_combo.currentText().replace("x", ""))
-
-        if self.preserve_pitch:
-            adjusted_pos = int(pos / speed)
-        else:
-            adjusted_pos = pos
-
-        self._playback_start_time = monotonic() - (pos / 1000)
-
-        safe_pos = min(pos, self.pitch_player.last_duration or pos)
-        self.pitch_player.play(str(path), speed=speed, preserve_pitch=self.preserve_pitch, start_ms=safe_pos, force_play=self.is_playing)
-
-        QTimer.singleShot(1500, lambda: self._finalize_seek_ui(pos))
+        self._playback_start_time = monotonic() - (pos / 1000 / speed)
+        self.pitch_player.play(
+            str(path), 
+            speed=speed, 
+            preserve_pitch=self.preserve_pitch, 
+            start_ms=pos, 
+            force_play=self.is_playing
+        )
+        
+        QTimer.singleShot(200, lambda: self._finalize_seek_ui(pos))
