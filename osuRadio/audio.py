@@ -11,7 +11,7 @@ import random
 from time import monotonic
 from pathlib import Path
 from PySide6.QtCore import (
-    QUrl, QTimer, Qt
+    QUrl, QTimer
 )
 from PySide6.QtWidgets import QMessageBox
 from PySide6.QtGui import (
