@@ -75,6 +75,12 @@ class PitchAdjustedPlayer:
     def __init__(self, audio_output: QAudioOutput, parent=None):
         self.player = QMediaPlayer(parent)
         self.player.setAudioOutput(audio_output)
+
+        if hasattr(self.player, 'setPitchCompensation'):
+            self.player.setPitchCompensation(False)
+        else:
+            print("[PitchPlayer] ℹ️ setPitchCompensation not available (older Qt version)")
+        
         self._last_path = None
         self.audio_output = audio_output
         self.current_temp = None
