@@ -98,10 +98,18 @@ class SettingsDialog(QDialog):
             )
         )
 
+        self.brightness_label = QLabel("Brightness:")
         brightness_layout = QHBoxLayout()
-        brightness_layout.addWidget(QLabel("Brightness:"))
+        brightness_layout.addWidget(self.brightness_label)
         brightness_layout.addWidget(self.brightness_slider)
         layout.addLayout(brightness_layout)
+
+        def update_brightness_state(checked):
+            self.brightness_slider.setEnabled(checked)
+            self.brightness_label.setEnabled(checked)
+
+        self.video_checkbox.toggled.connect(update_brightness_state)
+        update_brightness_state(parent.video_enabled)
 
         # Resolution dropdown
         self.res_combo = QComboBox()
