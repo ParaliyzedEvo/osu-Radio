@@ -215,13 +215,20 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
         vol_layout.addWidget(vol)
 
         self.volume_label.setParent(vol_widget)
-        self.volume_label.move(vol_widget.width() - self.volume_label.width() - 7, -4)
+
+        def position_volume_label():
+            v = self.vol
+            if v >= 0:
+                offset = -4
+            self.volume_label.adjustSize()
+            self.volume_label.move(vol_widget.width() - self.volume_label.width() + offset, -4)
+
+        position_volume_label()
         self.volume_label.raise_()
         self.volume_label.show()
 
-        vol_widget.resizeEvent = lambda event: self.volume_label.move(
-            vol_widget.width() - self.volume_label.width() - 7, -4
-        )
+        vol_widget.resizeEvent = lambda event: position_volume_label()
+        self._position_volume_label = position_volume_label
         bot.addWidget(vol_widget, 1)
 
         # Seek slider + overlay
@@ -619,6 +626,8 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
         self.audio_out.setVolume(v / 100)
         self._update_volume_label(v)
         self.vol = v
+        if hasattr(self, "_position_volume_label"):
+            self._position_volume_label()
         self.save_user_settings()
 
     def open_settings(self):
