@@ -107,6 +107,7 @@ class SettingsDialog(QDialog):
         def update_brightness_state(checked):
             self.brightness_slider.setEnabled(checked)
             self.brightness_label.setEnabled(checked)
+            parent._apply_video_setting(checked)  # Live preview
 
         self.video_checkbox.toggled.connect(update_brightness_state)
         update_brightness_state(parent.video_enabled)
@@ -152,6 +153,7 @@ class SettingsDialog(QDialog):
         self._original_opacity = parent.ui_opacity
         self._original_hue = parent.hue
         self._original_brightness = getattr(parent, "brightness", 255)
+        self._original_video_enabled = parent.video_enabled
 
     def show_credits(self):
         text = (
@@ -216,6 +218,7 @@ class SettingsDialog(QDialog):
         self.main.ui_opacity = self._original_opacity
         self.main.hue = self._original_hue
         self.main.brightness = self._original_brightness
+        self.main._apply_video_setting(self._original_video_enabled)
         super().reject()
 
 class SettingsMixin:
