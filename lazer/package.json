@@ -17,6 +17,7 @@
     "build": "pkg index.js --targets node18-macos-x64,node18-macos-arm64"
   },
   "dependencies": {
-    "pkg": "^5.8.1"
+    "pkg": "^5.8.1",
+    "realm": "^20.2.0"
   }
 }
