@@ -1,0 +1,22 @@
+{
+  "name": "lazer",
+  "version": "1.0.0",
+  "description": "",
+  "homepage": "https://github.com/ParaliyzedEvo/osu-Radio#readme",
+  "bugs": {
+    "url": "https://github.com/ParaliyzedEvo/osu-Radio/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ParaliyzedEvo/osu-Radio.git"
+  },
+  "license": "AGPL-3.0-or-later",
+  "author": "Paraliyzed_evo",
+  "main": "index.js",
+  "scripts": {
+    "build": "pkg index.js --targets node18-macos-x64,node18-macos-arm64"
+  },
+  "dependencies": {
+    "pkg": "^5.8.1"
+  }
+}

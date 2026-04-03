@@ -175,6 +175,8 @@ cython_debug/
 
 # Configs
 *.json
+!package.json
+!package-lock.json
 *.db
 *.exe
 updater.spec
@@ -183,3 +185,6 @@ ffmpeg_bin/
 custom_songs/
 test2/
 *.bat
+
+# Node
+node_modules/
