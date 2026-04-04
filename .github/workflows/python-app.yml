@@ -110,11 +110,34 @@ jobs:
         run: |
           pyinstaller updater.py --onefile
 
-      - name: Build lazer
+      - name: Install lazer dependencies
         run: |
           cd lazer
           npm install
-          npm run build
+
+      - name: Build lazer (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          cd lazer
+          npm run build:win
+
+      - name: Build lazer (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cd lazer
+          npm run build:linux
+
+      - name: Build lazer (macOS x64)
+        if: runner.os == 'macOS' && contains(runner.name, 'large')
+        run: |
+          cd lazer
+          npm run build:mac-x64
+
+      - name: Build lazer (macOS ARM64)
+        if: runner.os == 'macOS'
+        run: |
+          cd lazer
+          npm run build:mac-arm64
 
       - name: Build app (Windows)
         if: matrix.os == 'windows-latest'
