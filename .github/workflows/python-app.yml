@@ -128,13 +128,13 @@ jobs:
           npm run build:linux
 
       - name: Build lazer (macOS x64)
-        if: runner.os == 'macOS' && contains(runner.name, 'large')
+        if: runner.os == 'macos-latest-large'
         run: |
           cd lazer
           npm run build:mac-x64
 
       - name: Build lazer (macOS ARM64)
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS-latest'
         run: |
           cd lazer
           npm run build:mac-arm64
