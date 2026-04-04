@@ -6,7 +6,7 @@ hiddenimports = collect_submodules('pynput') + ['simplejson']
 a = Analysis(
     ['osuRadio//main.py'],
     pathex=[],
-    binaries=[('dist/updater','.'),('lazer/dist/lazer.exe','.')],
+    binaries=[('dist/updater','.'),('lazer/dist/lazer','.')],
     datas=[('osuRadio/Background Video', 'Background Video'),('osuRadio/Osu!RadioIcon.ico','.'),('osuRadio/ffmpeg_bin','ffmpeg_bin'),('osuRadio/img','img')],
     hiddenimports=hiddenimports,
     hookspath=[],
