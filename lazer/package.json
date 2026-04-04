@@ -14,7 +14,7 @@
   "author": "Paraliyzed_evo",
   "main": "index.js",
   "scripts": {
-    "build": "pkg index.js --targets node18-win-x64,node18-linux-x64,node18-macos-x64,node18-macos-arm64 --output dist/lazer"
+    "build": "pkg index.js --targets \"node18-win-x64,node18-linux-x64,node18-macos-x64,node18-macos-arm64\" --output dist/lazer"
   },
   "dependencies": {
     "pkg": "^5.8.1",
