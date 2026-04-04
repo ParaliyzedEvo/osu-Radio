@@ -55,6 +55,7 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
 
         # Apply defaults if missing
         self.osu_folder          = settings.get("osu_folder")
+        self.lazer_folder = settings.get("lazer_folder")
         if not self.osu_folder:
             self.osu_folder = QFileDialog.getExistingDirectory(self, "Select osu! Songs Folder")
             first_time_setup = True  # Force scan after folder selection
@@ -537,7 +538,7 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
                 sys.exit()
             
         self.apply_settings(
-            self.osu_folder, self.light_mode, self.ui_opacity,
+            self.osu_folder, self.lazer_folder, self.light_mode, self.ui_opacity,
             w, h, self.hue, self.brightness, self.video_enabled, self.autoplay,
             self.media_keys_enabled, self.preserve_pitch, self.allow_prerelease, 
             allow_resizing=self.resizable

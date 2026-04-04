@@ -30,16 +30,27 @@ class SettingsDialog(QDialog):
 
         layout = QVBoxLayout(self)
 
-        # Songs folder selection
+        # osu!Stable Songs folder selection
         self.folder_edit = QLineEdit(parent.osu_folder)
         browse_btn = QPushButton("Browse…")
         browse_btn.clicked.connect(self.browse_folder)
 
         folder_layout = QHBoxLayout()
-        folder_layout.addWidget(QLabel("Songs Folder:"))
+        folder_layout.addWidget(QLabel("osu!Stable Songs Folder:"))
         folder_layout.addWidget(self.folder_edit)
         folder_layout.addWidget(browse_btn)
         layout.addLayout(folder_layout)
+
+        # osu!Lazer Songs folder selection
+        self.lazer_edit = QLineEdit(parent.lazer_folder)
+        lazer_browse_btn = QPushButton("Browse…")
+        lazer_browse_btn.clicked.connect(self.browse_lazer_folder)
+
+        lazer_layout = QHBoxLayout()
+        lazer_layout.addWidget(QLabel("osu!Lazer Folder:"))
+        lazer_layout.addWidget(self.lazer_edit)
+        lazer_layout.addWidget(lazer_browse_btn)
+        layout.addLayout(lazer_layout)
 
         # Toggles
         self.light_mode_checkbox = QCheckBox("Light Mode")
@@ -177,12 +188,18 @@ class SettingsDialog(QDialog):
         show_modal(msg)
 
     def browse_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select osu! Songs Folder")
+        folder = QFileDialog.getExistingDirectory(self, "Select osu!Stable Songs Folder")
         if folder:
             self.folder_edit.setText(folder)
+    
+    def browse_lazer_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, "Select osu!Lazer Songs Folder")
+        if folder:
+            self.lazer_edit.setText(folder)
 
     def apply(self):
         folder = self.folder_edit.text()
+        lazer = self.lazer_edit.text()
         light = self.light_mode_checkbox.isChecked()
         opacity = self.opacity_slider.value() / 100
         hue = self.hue_slider.value()
@@ -201,7 +218,7 @@ class SettingsDialog(QDialog):
 
         was_prerelease = self.main.allow_prerelease
         self.main.apply_settings(
-            folder, light, opacity, w, h, hue, brightness, 
+            folder, lazer, light, opacity, w, h, hue, brightness, 
             video_on, autoplay, media_keys, preserve_pitch,
             allow_prerelease, allow_resizing
         )
@@ -225,6 +242,7 @@ class SettingsMixin:
     def load_user_settings(self):
         defaults = {
             "osu_folder": None,
+            "lazer_folder": None,
             "light_mode": False,
             "ui_opacity": 0.75,
             "window_width": 854,
@@ -254,6 +272,7 @@ class SettingsMixin:
     def save_user_settings(self):
         settings = {
             "osu_folder": self.osu_folder,
+            "lazer_folder": self.lazer_folder,
             "light_mode": self.light_mode,
             "ui_opacity": self.ui_opacity,
             "window_width": self.width(),
@@ -279,9 +298,13 @@ class SettingsMixin:
         except Exception as e:
             print("[save_user_settings] Failed to save settings:", e)
 
-    def apply_settings(self, folder, light, opacity, w, h, hue, brightness, video_on, autoplay, media_keys, preserve_pitch, allow_prerelease, allow_resizing=False):
+    def apply_settings(self, folder, lazer_folder, light, opacity, w, h, hue, brightness, video_on, autoplay, media_keys, preserve_pitch, allow_prerelease, allow_resizing=False):
         if folder != self.osu_folder and os.path.isdir(folder):
             self.osu_folder = folder
+            self.reload_songs()
+    
+        if lazer_folder != self.lazer_folder and os.path.isdir(lazer_folder):
+            self.lazer_folder = lazer_folder
             self.reload_songs()
 
         self._apply_ui_settings(light, opacity, w, h, hue, brightness)
