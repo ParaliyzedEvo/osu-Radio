@@ -110,6 +110,12 @@ jobs:
         run: |
           pyinstaller updater.py --onefile
 
+      - name: Build lazer
+        run: |
+          cd lazer
+          npm install
+          npm run build
+
       - name: Build app (Windows)
         if: matrix.os == 'windows-latest'
         run: pyinstaller Osu!Radio.spec --clean
@@ -139,6 +145,7 @@ jobs:
           cp -r 'osuRadio/ffmpeg_bin' 'osu!Radio-linux/'
           cp -r 'osuRadio/img' 'osu!Radio-linux/'
           cp 'dist/updater' 'osu!Radio-linux'
+          cp 'lazer/dist/lazer' 'osu!Radio-linux'
           cp 'osuRadio/Osu!RadioIcon.png' 'osu!Radio-linux/'
           tar -czf 'osu!Radio.tar.gz' -C 'osu!Radio-linux' .
 
@@ -153,6 +160,7 @@ jobs:
           cp -r 'osuRadio/Background Video' "${DIST_PATH}/osu!Radio.app/Contents/Resources/"
           cp -r 'osuRadio/ffmpeg_bin' "${DIST_PATH}/osu!Radio.app/Contents/Resources/"
           cp -r 'osuRadio/img' "${DIST_PATH}/osu!Radio.app/Contents/Resources/"
+          cp -r 'lazer/dist/lazer' "${DIST_PATH}/osu!Radio.app/Contents/Resources/"
 
       - name: Upload build artifacts (Windows)
         if: matrix.os == 'windows-latest'
