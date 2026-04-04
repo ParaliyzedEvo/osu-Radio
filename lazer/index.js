@@ -2,6 +2,7 @@
 const Realm = require('realm');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 
 // Get actual file path
 function getAudioFilePath(lazerDir, hash) {
@@ -120,8 +121,16 @@ async function main() {
 
     try {
         const beatmaps = await extractBeatmapData(lazerDir);
+        const tempDir = os.tmpdir();
+        const cacheDir = path.join(tempDir, 'OsuRadioCache');
         
-        const outputPath = path.join(process.cwd(), 'lazer-audio-paths.json');
+        // Create cache directory if it doesn't exist
+        if (!fs.existsSync(cacheDir)) {
+            fs.mkdirSync(cacheDir, { recursive: true });
+            console.log(`[Created] Cache directory: ${cacheDir}`);
+        }
+        
+        const outputPath = path.join(cacheDir, 'lazer-audio-paths.json');
         fs.writeFileSync(outputPath, JSON.stringify(beatmaps, null, 2));
         
         console.log(`[Saved] ${outputPath}`);
