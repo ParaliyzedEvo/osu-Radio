@@ -116,25 +116,25 @@ jobs:
           npm install
 
       - name: Build lazer (Windows)
-        if: runner.os == 'Windows'
+        if: matrix.os == 'windows-latest'
         run: |
           cd lazer
           npm run build:win
 
       - name: Build lazer (Linux)
-        if: runner.os == 'Linux'
+        if: matrix.os == 'ubuntu-latest'
         run: |
           cd lazer
           npm run build:linux
 
       - name: Build lazer (macOS x64)
-        if: runner.os == 'macos-latest-large'
+        if: matrix.os == 'macos-latest-large'
         run: |
           cd lazer
           npm run build:mac-x64
 
       - name: Build lazer (macOS ARM64)
-        if: runner.os == 'macOS-latest'
+        if: matrix.os == 'macos-latest'
         run: |
           cd lazer
           npm run build:mac-arm64
