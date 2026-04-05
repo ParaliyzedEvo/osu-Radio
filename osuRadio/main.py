@@ -675,6 +675,11 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
         # 6) Accept the event
         QTimer.singleShot(200, self.cleanup_cache)
         event.accept()
+
+        # 7) Stop lazer scanner if it's still running
+        if hasattr(self, "_lazer_scanner") and self._lazer_scanner.isRunning():
+            self._lazer_scanner.requestInterruption()
+            self._lazer_scanner.wait(3000)
         
     def _on_audio_status(self, status):
         # QMediaPlayer.EndOfMedia fires once when a track finishes

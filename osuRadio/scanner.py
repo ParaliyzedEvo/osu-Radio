@@ -3,6 +3,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, Signal, QThread
 from PySide6.QtWidgets import QApplication, QLabel, QMessageBox, QProgressDialog
 from osuRadio.config import BASE_PATH, CUSTOM_SONGS_PATH
+from osuRadio.lazer import LazerScanner
 from osuRadio.msg import show_modal
 from osuRadio.parser import OsuParser
 from osuRadio.db import (
@@ -210,6 +211,78 @@ class LibraryMixin:
             else:
                 ev.ignore()
 
+        def _on_lazer_scan_complete(self, lazer_songs):
+            print(f"[LazerScan] Got {len(lazer_songs)} songs from lazer")
+            # Merge into existing library
+            existing_hashes = {
+                s.get("audio_hash") for s in self.library if s.get("audio_hash")
+            }
+            existing_keys = {
+                (s.get("title", "").strip().lower(), s.get("artist", "").strip().lower())
+                for s in self.library
+            }
+
+            added = 0
+            replaced = 0
+            for song in lazer_songs:
+                h = song.get("audio_hash")
+                key = (song.get("title", "").strip().lower(), song.get("artist", "").strip().lower())
+
+                if h and h in existing_hashes:
+                    # Remove the stable duplicate
+                    self.library = [s for s in self.library if s.get("audio_hash") != h]
+                    self.library.append(song)
+                    replaced += 1
+                elif key in existing_keys:
+                    # Hash didn't match but title+artist did — still prefer lazer
+                    self.library = [
+                        s for s in self.library
+                        if (s.get("title","").strip().lower(), s.get("artist","").strip().lower()) != key
+                    ]
+                    self.library.append(song)
+                    replaced += 1
+                else:
+                    self.library.append(song)
+                    existing_keys.add(key)
+                    added += 1
+
+            self.queue = list(self.library)
+            self.populate_list(self.queue)
+            self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
+            print(f"[LazerScan] Merged: {added} new, {replaced} replaced stable dupes")
+            self._backfill_stable_hashes()
+
+        def _backfill_stable_hashes(self):
+            # Store audio hashes for stable songs that don't have one yet.
+            import sqlite3
+            from osuRadio.lazer import compute_file_hash
+            from osuRadio.config import DATABASE_FILE
+            from osuRadio.db import get_audio_path
+
+            needs_hash = [s for s in self.library if s.get("source") != "lazer" and not s.get("audio_hash")]
+            if not needs_hash:
+                return
+
+            print(f"[HashBackfill] Computing hashes for {len(needs_hash)} stable songs...")
+
+            try:
+                with sqlite3.connect(DATABASE_FILE) as conn:
+                    cursor = conn.cursor()
+                    for song in needs_hash:
+                        path = get_audio_path(song)
+                        if path.exists():
+                            h = compute_file_hash(str(path))
+                            if h:
+                                cursor.execute(
+                                    "UPDATE songs SET audio_hash = ? WHERE title = ? AND artist = ? AND source = 'stable'",
+                                    (h, song.get("title"), song.get("artist"))
+                                )
+                                song["audio_hash"] = h
+                    conn.commit()
+                print("[HashBackfill] Done.")
+            except Exception as e:
+                print(f"[HashBackfill] Error: {e}")
+
         self.progress.closeEvent = handle_close
         self.progress.show()
         QApplication.processEvents()
@@ -218,6 +291,16 @@ class LibraryMixin:
         self._scanner.progress_update.connect(self.progress_label.setText)
         self._scanner.done.connect(self._on_reload_complete)
         self._scanner.start()
+
+        # Kick off lazer scan if folder is set
+        if getattr(self, "lazer_folder", None) and os.path.isdir(self.lazer_folder):
+            if hasattr(self, "_lazer_scanner") and self._lazer_scanner.isRunning():
+                self._lazer_scanner.requestInterruption()
+                self._lazer_scanner.wait(3000)
+            self._lazer_scanner = LazerScanner(self.lazer_folder)
+            self._lazer_scanner.progress_update.connect(self.progress_label.setText)
+            self._lazer_scanner.done.connect(self._on_lazer_scan_complete)
+            self._lazer_scanner.start()
         
     def _on_reload_complete(self, library):
         valid_library = []

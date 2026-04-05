@@ -19,7 +19,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QMediaDevices, QAudioFormat
 
-from osuRadio.config import get_ffmpeg_bin_path, DATABASE_FILE
+from osuRadio.config import get_ffmpeg_bin_path, DATABASE_FILE, get_silent_subprocess_kwargs
 from osuRadio.db import get_audio_path
 
 ffmpeg_path = str(get_ffmpeg_bin_path())

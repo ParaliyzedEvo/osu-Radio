@@ -2,6 +2,7 @@ import sys
 import os
 import platform
 from pathlib import Path
+import subprocess as _subprocess
 
 # Paths & Environment
 IS_WINDOWS = os.name == "nt"
@@ -81,3 +82,24 @@ def get_yt_dlp_path():
         return resource_path("ffmpeg_bin", "linux", "bin", "yt-dlp")
     else:
         raise RuntimeError(f"Unsupported platform: {system}")
+    
+def get_lazer_reader_path():
+    system = platform.system().lower()
+    if getattr(sys, "frozen", False):
+        if system == "windows":
+            return BASE_PATH / "lazer.exe"
+        else:
+            return BASE_PATH / "lazer"
+    else:
+        return BASE_PATH.parent / "lazer" / "index.js"
+    
+def get_silent_subprocess_kwargs():
+    if IS_WINDOWS:
+        import subprocess
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        return {
+            "startupinfo": si,
+            "creationflags": subprocess.CREATE_NO_WINDOW,
+        }
+    return {}

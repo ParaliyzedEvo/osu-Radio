@@ -1,11 +1,11 @@
 import os
 import sqlite3
 from pathlib import Path
+import tempfile
 from typing import List, Dict, Tuple, Optional
 from osuRadio.config import DATABASE_FILE
 
 def init_db():
-    """Initialize the database with songs and metadata tables."""
     with sqlite3.connect(DATABASE_FILE) as conn:
         cursor = conn.cursor()
         cursor.execute("""
@@ -20,6 +20,8 @@ def init_db():
                 osu_file TEXT,
                 folder TEXT,
                 source_folder TEXT,
+                source TEXT DEFAULT 'stable',
+                audio_hash TEXT,
                 UNIQUE(title, artist, mapper, source_folder)
             )""")
         cursor.execute("""
@@ -27,11 +29,17 @@ def init_db():
                 key TEXT PRIMARY KEY,
                 value TEXT
             )""")
-        try:
-            cursor.execute("ALTER TABLE songs ADD COLUMN source_folder TEXT")
-            conn.commit()
-        except sqlite3.OperationalError:
-            pass  # Column already exists
+        # Add new columns if they don't exist
+        for col, definition in [
+            ("source_folder", "TEXT"),
+            ("source", "TEXT DEFAULT 'stable'"),
+            ("audio_hash", "TEXT"),
+        ]:
+            try:
+                cursor.execute(f"ALTER TABLE songs ADD COLUMN {col} {definition}")
+                conn.commit()
+            except sqlite3.OperationalError:
+                pass
         conn.commit()
 
 def validate_cache(folder) -> Tuple[bool, str, List[Dict]]:
@@ -98,32 +106,33 @@ def validate_cache(folder) -> Tuple[bool, str, List[Dict]]:
 def load_cache(folder) -> Optional[List[Dict]]:
     if not DATABASE_FILE.exists():
         return None
-    
-    # Convert Path to string if needed
     folder_str = str(folder) if isinstance(folder, Path) else folder
-    
     try:
         with sqlite3.connect(DATABASE_FILE) as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT title, artist, mapper, audio, background, length, osu_file, folder 
+                SELECT title, artist, mapper, audio, background, length,
+                       osu_file, folder, source, audio_hash
                 FROM songs 
                 WHERE source_folder = ? OR (source_folder IS NULL AND folder LIKE ?)
             """, (folder_str, f"{folder_str}%"))
             
             songs = [
-                dict(zip(["title", "artist", "mapper", "audio", "background", "length", "osu_file", "folder"], row))
+                dict(zip(["title", "artist", "mapper", "audio", "background",
+                          "length", "osu_file", "folder", "source", "audio_hash"], row))
                 for row in cursor.fetchall()
             ]
-
             valid_songs = []
             for song in songs:
-                osu_file_path = Path(song.get("folder", "")) / song.get("osu_file", "")
-                if osu_file_path.exists():
-                    valid_songs.append(song)
-            
+                if song.get("source") == "lazer":
+                    # Lazer songs: check audioPath directly
+                    if song.get("audio") and Path(song["audio"]).exists():
+                        valid_songs.append(song)
+                else:
+                    osu_file_path = Path(song.get("folder", "")) / song.get("osu_file", "")
+                    if osu_file_path.exists():
+                        valid_songs.append(song)
             return valid_songs if valid_songs else None
-            
     except Exception as e:
         print(f"[load_cache] Error: {e}")
         return None
@@ -164,7 +173,7 @@ def update_folder_mtime(folder: str):
     except Exception as e:
         print(f"[update_folder_mtime] Error: {e}")
 
-def save_cache(folder, maps: List[Dict]):
+def save_cache(folder, maps: List[Dict], source: str = 'stable'):
     init_db()
     folder_str = str(folder) if isinstance(folder, Path) else folder
     
@@ -174,22 +183,33 @@ def save_cache(folder, maps: List[Dict]):
             cursor.execute("BEGIN TRANSACTION")
             
             for s in maps:
+                audio_hash = s.get("audio_hash")
+
+                # Dedup check
+                if source == 'lazer':
+                    cursor.execute("""
+                        DELETE FROM songs
+                        WHERE title = ? AND artist = ? AND source = 'stable'
+                        AND (audio_hash IS NULL OR audio_hash = ?)
+                    """, (s.get("title"), s.get("artist"), audio_hash or ""))
+
                 cursor.execute("""
                     INSERT OR REPLACE INTO songs
-                    (title, artist, mapper, audio, background, length, osu_file, folder, source_folder)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""", (
+                    (title, artist, mapper, audio, background, length, 
+                     osu_file, folder, source_folder, source, audio_hash)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (
                         s.get("title"), s.get("artist"), s.get("mapper"),
                         s.get("audio"), s.get("background"), s.get("length", 0),
-                        s.get("osu_file"), s.get("folder"), folder_str
+                        s.get("osu_file", ""), s.get("folder"), folder_str,
+                        source, audio_hash
                     ))
             
             cursor.execute(
                 "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
                 (f'folder_mtime_{folder_str}', str(os.path.getmtime(folder_str)))
             )
-            
             conn.commit()
-            print(f"[save_cache] Saved {len(maps)} songs to cache for folder: {folder_str}")
+            print(f"[save_cache] Saved {len(maps)} {source} songs for folder: {folder_str}")
             
     except Exception as e:
         print(f"[save_cache] Error: {e}")
@@ -242,5 +262,32 @@ def get_cache_stats() -> Dict:
         print(f"[get_cache_stats] Error: {e}")
         return {"total_songs": 0, "folders": []}
 
-def get_audio_path(song: Dict) -> Path:
+def get_audio_path(song: dict) -> Path:
+    if song.get("source") == "lazer":
+        return get_lazer_audio_path(song)
     return Path(song["folder"]) / song["audio"]
+
+def get_lazer_audio_path(song: dict) -> Path:
+    import shutil
+    hash_path = Path(song.get("folder", ""))
+    audio_filename = song.get("audio", "audio.mp3")
+    ext = Path(audio_filename).suffix or ".mp3"
+    
+    cache_dir = Path(tempfile.gettempdir()) / "OsuRadioCache"
+    cache_dir.mkdir(exist_ok=True)
+    
+    audio_hash = song.get("audio_hash", "")
+    if audio_hash:
+        cached = cache_dir / f"{audio_hash}{ext}"
+    else:
+        cached = cache_dir / audio_filename
+
+    if not cached.exists() and hash_path.exists():
+        try:
+            shutil.copy2(str(hash_path), str(cached))
+            print(f"[LazerAudio] Copied {hash_path.name} → {cached.name}")
+        except Exception as e:
+            print(f"[LazerAudio] Copy failed: {e}")
+            return hash_path  # fallback to hash path directly
+
+    return cached
