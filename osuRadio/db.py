@@ -263,7 +263,9 @@ def get_cache_stats() -> Dict:
         return {"total_songs": 0, "folders": []}
 
 def get_audio_path(song: dict) -> Path:
-    if song.get("source") == "lazer":
+    source = song.get("source", "stable")
+    print(f"[get_audio_path] source={source} title={song.get('title')} folder={song.get('folder')} audio={song.get('audio')}")
+    if source == "lazer":
         return get_lazer_audio_path(song)
     return Path(song["folder"]) / song["audio"]
 
