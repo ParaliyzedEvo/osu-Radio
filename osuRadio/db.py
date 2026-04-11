@@ -124,14 +124,27 @@ def load_cache(folder) -> Optional[List[Dict]]:
                           "length", "osu_file", "folder", "source", "audio_hash"], row))
                 for row in cursor.fetchall()
             ]
+
             valid_songs = []
             for song in songs:
-                if song.get("source") == "lazer":
-                    folder = Path(song.get("folder", ""))
-                    audio_hash = song.get("audio_hash", "")
-                    hash_file = folder / audio_hash if audio_hash else folder
+                source = song.get("source", "stable")
+                song_folder = Path(song.get("folder", ""))
+                audio = song.get("audio", "")
+                audio_hash = song.get("audio_hash", "")
+
+                if source == "lazer":
+                    # Lazer
+                    hash_file = song_folder / audio_hash if audio_hash else song_folder
                     if hash_file.exists() and hash_file.is_file():
                         valid_songs.append(song)
+                else:
+                    # Stable/custom
+                    if audio and (song_folder / audio).exists():
+                        valid_songs.append(song)
+                    elif not audio:
+                        # Custom songs
+                        valid_songs.append(song)
+
             return valid_songs if valid_songs else None
     except Exception as e:
         print(f"[load_cache] Error: {e}")
@@ -186,13 +199,20 @@ def save_cache(folder, maps: List[Dict], source: str = 'stable'):
                 audio_hash = s.get("audio_hash")
                 background_hash = s.get("background_hash")
 
-                # Dedup check
                 if source == 'lazer':
                     cursor.execute("""
                         DELETE FROM songs
                         WHERE title = ? AND artist = ? AND source = 'stable'
-                        AND (audio_hash IS NULL OR audio_hash = ?)
-                    """, (s.get("title"), s.get("artist"), audio_hash or ""))
+                    """, (s.get("title"), s.get("artist")))
+
+                elif source == 'stable':
+                    cursor.execute("""
+                        SELECT 1 FROM songs
+                        WHERE title = ? AND artist = ? AND source = 'lazer'
+                        LIMIT 1
+                    """, (s.get("title"), s.get("artist")))
+                    if cursor.fetchone():
+                        continue
 
                 cursor.execute("""
                     INSERT OR REPLACE INTO songs

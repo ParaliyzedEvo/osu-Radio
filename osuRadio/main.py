@@ -4,6 +4,7 @@ import json
 import tempfile
 import shutil
 import tempfile
+import unicodedata
 from pathlib import Path
 from time import monotonic
 from PySide6.QtCore import (
@@ -397,18 +398,27 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
         # Load from cache if available
         osu_cache = load_cache(self.osu_folder) or []
         custom_cache = load_cache(BASE_PATH / "custom_songs") or []
-        lazer_cache = load_cache(self.lazer_folder) if self.lazer_folder and os.path.isdir(self.lazer_folder) else []
-        lazer_cache = lazer_cache or []
+        lazer_cache = load_cache(self.lazer_folder) if getattr(self, "lazer_folder", None) and os.path.isdir(self.lazer_folder) else []
+        lazer_cache = [s for s in (lazer_cache or []) if s.get("source") == "lazer"]
 
-        # Lazer wins on duplicates
+        def normalize(s):
+            s = unicodedata.normalize("NFKC", s.strip().lower())
+            return " ".join(s.split())
+
+        lazer_hashes = {s.get("audio_hash") for s in lazer_cache if s.get("audio_hash")}
         lazer_keys = {
-            (s.get("title","").strip().lower(), s.get("artist","").strip().lower())
+            (normalize(s.get("title", "")), normalize(s.get("artist", "")))
             for s in lazer_cache
         }
-        osu_cache = [
-            s for s in osu_cache
-            if (s.get("title","").strip().lower(), s.get("artist","").strip().lower()) not in lazer_keys
-        ]
+
+        def is_lazer_dupe(song):
+            h = song.get("audio_hash")
+            if h and h in lazer_hashes:
+                return True
+            return (normalize(song.get("title", "")), normalize(song.get("artist", ""))) in lazer_keys
+
+        osu_cache = [s for s in osu_cache if not is_lazer_dupe(s)]
+        custom_cache = [s for s in custom_cache if not is_lazer_dupe(s)]
         combined_cache = osu_cache + custom_cache + lazer_cache
         
         if combined_cache and not first_setup:

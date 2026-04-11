@@ -95,6 +95,7 @@ class LibraryScanner(QThread):
 
 class LibraryMixin:
     def _on_lazer_scan_complete(self, lazer_songs):
+        print(f"[LazerMerge] Starting with library size: {len(self.library)}")
         print(f"[LazerScan] Got {len(lazer_songs)} songs from lazer")
         # Merge into existing library
         existing_hashes = {
@@ -341,7 +342,6 @@ class LibraryMixin:
             
             print("[reload_complete] 📥 Scanning custom_songs folder...")
             
-            # Check if custom songs are already in cache
             custom_cache = load_cache(CUSTOM_SONGS_PATH)
             
             if not custom_cache or not hasattr(self, '_scanner'):
@@ -352,9 +352,11 @@ class LibraryMixin:
                 print(f"[reload_complete] Loaded {len(custom_cache)} custom songs from cache")
             
             combined_library = library + (custom_cache or [])
+            custom_count = len(custom_cache or [])  # ← capture NOW before lazer merge
         else:
             combined_library = library
-        
+            custom_count = 0
+
         lazer_songs_already_merged = [s for s in self.library if s.get("source") == "lazer"]
 
         if lazer_songs_already_merged:
@@ -362,7 +364,6 @@ class LibraryMixin:
                 (s.get("title","").strip().lower(), s.get("artist","").strip().lower())
                 for s in lazer_songs_already_merged
             }
-            # Remove stable dupes that lazer already covers
             combined_library = [
                 s for s in combined_library
                 if (s.get("title","").strip().lower(), s.get("artist","").strip().lower()) not in lazer_keys
@@ -375,27 +376,22 @@ class LibraryMixin:
         
         print(f"[reload_complete] ✅ Total: {len(combined_library)} songs in library.")
 
-        # Close progress dialog
         if hasattr(self, "progress") and self.progress:
-            self.progress.closeEvent = lambda ev: ev.accept()  # disable cancel check
+            self.progress.closeEvent = lambda ev: ev.accept()
             self.progress.close()
             self.progress = None
 
         if not getattr(self, "_progress_user_closed", False):
             osu_count = len(library)
-            custom_count = len(combined_library) - len(library)
             
             msg_text = (
                 f"✅ Successfully imported {len(combined_library)} songs!\n\n"
                 f"• osu! beatmaps: {osu_count}\n"
                 f"• Custom songs: {custom_count}\n"
             )
-            
             if missing_count > 0:
                 msg_text += f"\n⚠️ Skipped {missing_count} beatmaps with missing audio files"
-            
             msg_text += "\n\nYour library is now up to date."
-            
             QMessageBox.information(self, "Import Complete", msg_text)
     
     def check_and_update_cache(self):

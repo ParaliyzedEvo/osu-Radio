@@ -1,4 +1,3 @@
-import os
 import sys
 import json
 import hashlib
@@ -6,7 +5,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 from PySide6.QtCore import QThread, Signal
-from osuRadio.config import BASE_PATH, get_lazer_reader_path, get_silent_subprocess_kwargs
+from osuRadio.config import get_lazer_reader_path, get_silent_subprocess_kwargs
 from osuRadio.db import save_cache
 
 def compute_file_hash(path: str) -> str:
