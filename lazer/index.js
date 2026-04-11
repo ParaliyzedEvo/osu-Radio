@@ -13,7 +13,7 @@ function getAudioFilePath(lazerDir, hash) {
     const firstChar = hash[0];
     const firstTwo = hash.substring(0, 2);
     
-    return path.join(lazerDir, 'files', firstChar, firstTwo, hash);
+    return path.join(lazerDir, 'files', firstChar, firstTwo);
 }
 
 async function extractBeatmapData(lazerDir) {

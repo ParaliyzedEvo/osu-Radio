@@ -75,19 +75,18 @@ def convert_lazer_to_songs(raw: list) -> list:
 
     songs = []
     for entry in seen.values():
-        audio_path = entry.get("audioPath", "")
-        audio_hash = entry.get("audioHash", "")
         songs.append({
             "title": entry.get("title", "Unknown"),
             "artist": entry.get("artist", "Unknown"),
             "mapper": entry.get("mapper", "Unknown"),
-            "audio": entry.get("audioFilename", "audio"),
-            "audio_path": audio_path,   # full path to hash file
-            "audio_hash": audio_hash,
+            "audio": entry.get("audioFilename", "audio.mp3"),  # just the filename
+            "audio_path": entry.get("audioPath", ""),    # full path to hash file
+            "audio_hash": entry.get("audioHash", ""),
             "background": entry.get("backgroundPath") or "",
-            "length": 0,                # lazer JSON doesn't include length
+            "background_hash": entry.get("backgroundHash") or "",
+            "length": 0,
             "osu_file": "",
-            "folder": audio_path,       # folder = hash path for lazer songs
+            "folder": entry.get("audioPath", ""),        # full hash file path, used as existence check
             "source": "lazer",
         })
     return songs

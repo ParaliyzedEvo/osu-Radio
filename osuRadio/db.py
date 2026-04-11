@@ -16,6 +16,7 @@ def init_db():
                 mapper TEXT,
                 audio TEXT,
                 background TEXT,
+                background_hash TEXT,
                 length INTEGER,
                 osu_file TEXT,
                 folder TEXT,
@@ -34,6 +35,7 @@ def init_db():
             ("source_folder", "TEXT"),
             ("source", "TEXT DEFAULT 'stable'"),
             ("audio_hash", "TEXT"),
+            ("background_hash", "TEXT"),
         ]:
             try:
                 cursor.execute(f"ALTER TABLE songs ADD COLUMN {col} {definition}")
@@ -125,12 +127,10 @@ def load_cache(folder) -> Optional[List[Dict]]:
             valid_songs = []
             for song in songs:
                 if song.get("source") == "lazer":
-                    # Lazer songs: check audioPath directly
-                    if song.get("audio") and Path(song["audio"]).exists():
-                        valid_songs.append(song)
-                else:
-                    osu_file_path = Path(song.get("folder", "")) / song.get("osu_file", "")
-                    if osu_file_path.exists():
+                    folder = Path(song.get("folder", ""))
+                    audio_hash = song.get("audio_hash", "")
+                    hash_file = folder / audio_hash if audio_hash else folder
+                    if hash_file.exists() and hash_file.is_file():
                         valid_songs.append(song)
             return valid_songs if valid_songs else None
     except Exception as e:
@@ -184,6 +184,7 @@ def save_cache(folder, maps: List[Dict], source: str = 'stable'):
             
             for s in maps:
                 audio_hash = s.get("audio_hash")
+                background_hash = s.get("background_hash")
 
                 # Dedup check
                 if source == 'lazer':
@@ -196,12 +197,12 @@ def save_cache(folder, maps: List[Dict], source: str = 'stable'):
                 cursor.execute("""
                     INSERT OR REPLACE INTO songs
                     (title, artist, mapper, audio, background, length, 
-                     osu_file, folder, source_folder, source, audio_hash)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (
+                     osu_file, folder, source_folder, source, audio_hash, background_hash)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (
                         s.get("title"), s.get("artist"), s.get("mapper"),
                         s.get("audio"), s.get("background"), s.get("length", 0),
                         s.get("osu_file", ""), s.get("folder"), folder_str,
-                        source, audio_hash
+                        source, audio_hash, background_hash
                     ))
             
             cursor.execute(
@@ -264,32 +265,49 @@ def get_cache_stats() -> Dict:
 
 def get_audio_path(song: dict) -> Path:
     source = song.get("source", "stable")
-    print(f"[get_audio_path] source={source} title={song.get('title')} folder={song.get('folder')} audio={song.get('audio')}")
-    if source == "lazer":
+    folder = song.get("folder", "")
+    audio = song.get("audio", "")
+    is_lazer_path = False
+
+    if folder:
+        folder_str = str(folder)
+        
+        if "\\files\\" in folder_str or "/files/" in folder_str:
+            parts = Path(folder_str).parts
+            if len(parts) >= 3 and parts[-3] == "files":
+                is_lazer_path = True
+                print(f"[get_audio_path] Auto-detected lazer path for '{song.get('title')}'")
+    
+    # Use lazer handler if source says lazer OR if we detected a lazer path
+    if source == "lazer" or is_lazer_path:
         return get_lazer_audio_path(song)
-    return Path(song["folder"]) / song["audio"]
+    
+    # Standard stable path
+    print(f"[get_audio_path] Using stable path: {folder}/{audio}")
+    return Path(folder) / audio
 
 def get_lazer_audio_path(song: dict) -> Path:
     import shutil
-    hash_path = Path(song.get("folder", ""))
+    audio_hash = song.get("audio_hash", "")
     audio_filename = song.get("audio", "audio.mp3")
     ext = Path(audio_filename).suffix or ".mp3"
-    
+    folder = Path(song.get("folder", ""))
+    hash_file = folder / audio_hash if audio_hash else folder
+
     cache_dir = Path(tempfile.gettempdir()) / "OsuRadioCache"
     cache_dir.mkdir(exist_ok=True)
-    
-    audio_hash = song.get("audio_hash", "")
-    if audio_hash:
-        cached = cache_dir / f"{audio_hash}{ext}"
-    else:
-        cached = cache_dir / audio_filename
+    cached = cache_dir / f"{audio_hash}{ext}" if audio_hash else cache_dir / audio_filename
 
-    if not cached.exists() and hash_path.exists():
-        try:
-            shutil.copy2(str(hash_path), str(cached))
-            print(f"[LazerAudio] Copied {hash_path.name} → {cached.name}")
-        except Exception as e:
-            print(f"[LazerAudio] Copy failed: {e}")
-            return hash_path  # fallback to hash path directly
+    if not cached.exists():
+        if hash_file.exists() and hash_file.is_file():
+            try:
+                shutil.copy2(str(hash_file), str(cached))
+                print(f"[LazerAudio] Copied {hash_file.name} → {cached.name}")
+            except Exception as e:
+                print(f"[LazerAudio] Copy failed: {e}")
+                return hash_file
+        else:
+            print(f"[LazerAudio] Hash file not found: {hash_file}")
+            return hash_file
 
     return cached

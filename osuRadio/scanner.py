@@ -134,6 +134,19 @@ class LibraryMixin:
         self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
         print(f"[LazerScan] Merged: {added} new, {replaced} replaced stable dupes")
         self._backfill_stable_hashes()
+        self._lazer_scan_done = True
+
+        # If autoplay was deferred, trigger it now
+        if getattr(self, "_deferred_autoplay", False):
+            self._deferred_autoplay = False
+            if self.queue:
+                self.play_song_at_index(0)
+
+        # If currently playing song was replaced by a lazer version, update the path
+        if hasattr(self, 'current_index') and self.queue:
+            current_song = self.queue[self.current_index] if self.current_index < len(self.queue) else None
+            if current_song and current_song.get("source") == "lazer":
+                print(f"[LazerScan] Current song updated to lazer source: {current_song.get('title')}")
 
     def _backfill_stable_hashes(self):
         # Compute and store audio hashes for stable songs
@@ -342,6 +355,19 @@ class LibraryMixin:
         else:
             combined_library = library
         
+        lazer_songs_already_merged = [s for s in self.library if s.get("source") == "lazer"]
+
+        if lazer_songs_already_merged:
+            lazer_keys = {
+                (s.get("title","").strip().lower(), s.get("artist","").strip().lower())
+                for s in lazer_songs_already_merged
+            }
+            # Remove stable dupes that lazer already covers
+            combined_library = [
+                s for s in combined_library
+                if (s.get("title","").strip().lower(), s.get("artist","").strip().lower()) not in lazer_keys
+            ] + lazer_songs_already_merged
+
         self.library = combined_library
         self.queue = list(combined_library)
         self.populate_list(self.queue)

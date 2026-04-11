@@ -369,7 +369,10 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
 
         # video background setup & loop
         if self.autoplay:
-            QTimer.singleShot(300, lambda: self.play_song_at_index(0))
+            if getattr(self, "lazer_folder", None) and os.path.isdir(self.lazer_folder):
+                self._deferred_autoplay = True
+            else:
+                QTimer.singleShot(300, lambda: self.play_song_at_index(0))
         video_file = Path(__file__).parent / "Background Video" / "Triangles.mp4"
         if video_file.exists():
             self.video_sink = QVideoSink(self)
@@ -392,9 +395,21 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
         QShortcut(QKeySequence(Qt.Key_MediaPause),    self, self.pause_song)
             
         # Load from cache if available
-        osu_cache = load_cache(self.osu_folder)
-        custom_cache = load_cache(BASE_PATH / "custom_songs")
-        combined_cache = (osu_cache or []) + (custom_cache or [])
+        osu_cache = load_cache(self.osu_folder) or []
+        custom_cache = load_cache(BASE_PATH / "custom_songs") or []
+        lazer_cache = load_cache(self.lazer_folder) if self.lazer_folder and os.path.isdir(self.lazer_folder) else []
+        lazer_cache = lazer_cache or []
+
+        # Lazer wins on duplicates
+        lazer_keys = {
+            (s.get("title","").strip().lower(), s.get("artist","").strip().lower())
+            for s in lazer_cache
+        }
+        osu_cache = [
+            s for s in osu_cache
+            if (s.get("title","").strip().lower(), s.get("artist","").strip().lower()) not in lazer_keys
+        ]
+        combined_cache = osu_cache + custom_cache + lazer_cache
         
         if combined_cache and not first_setup:
             is_valid, status_msg, missing_songs = validate_cache(self.osu_folder)
