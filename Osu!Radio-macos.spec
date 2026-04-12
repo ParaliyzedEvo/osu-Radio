@@ -2,7 +2,7 @@
 app_name = 'osu!Radio'
 main_script = 'osuRadio//main.py'
 
-from PyInstaller.utils.hooks import Tree
+from PyInstaller.building.datastruct import Tree
 tree_datas = Tree('lazer/dist', prefix='.')
 
 a = Analysis(

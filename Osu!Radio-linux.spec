@@ -1,5 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
-from PyInstaller.utils.hooks import collect_submodules, Tree
+from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.building.datastruct import Tree
 
 tree_datas = Tree('lazer/dist', prefix='.')
 hiddenimports = collect_submodules('pynput') + ['simplejson']
