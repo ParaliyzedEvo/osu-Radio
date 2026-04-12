@@ -19,6 +19,11 @@
     "build:mac-x64": "pkg index.js --targets \"node18-macos-x64\" --output dist/lazer",
     "build:mac-arm64": "pkg index.js --targets \"node18-macos-arm64\" --output dist/lazer"
   },
+  "pkg": {
+    "assets": [
+      "node_modules/realm/prebuilds/node/realm.node"
+    ]
+  },
   "dependencies": {
     "pkg": "^5.8.1",
     "realm": "^20.2.0"

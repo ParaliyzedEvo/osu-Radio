@@ -2,11 +2,14 @@
 app_name = 'osu!Radio'
 main_script = 'osuRadio//main.py'
 
+from PyInstaller.utils.hooks import Tree
+tree_datas = Tree('lazer/dist', prefix='.')
+
 a = Analysis(
     [main_script],
     pathex=[],
     binaries=[],
-    datas=[('osuRadio/Background Video', 'Background Video'),('osuRadio/Osu!RadioIcon.ico','.'),('osuRadio/ffmpeg_bin','ffmpeg_bin'),('osuRadio/img','img')],
+    datas=[('osuRadio/Background Video', 'Background Video'),('osuRadio/Osu!RadioIcon.ico','.'),('osuRadio/ffmpeg_bin','ffmpeg_bin'),('osuRadio/img','img')] + tree_datas,
     hiddenimports=['simplejson'],
     excludes=[],
     noarchive=False,

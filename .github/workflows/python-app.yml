@@ -123,24 +123,32 @@ jobs:
         run: |
           cd lazer
           npm run build:win
+          mkdir -p dist/prebuilds/node
+          cp node_modules/realm/prebuilds/node/realm.node dist/prebuilds/node/realm.node
 
       - name: Build lazer (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
           cd lazer
           npm run build:linux
+          mkdir -p dist/prebuilds/node
+          cp node_modules/realm/prebuilds/node/realm.node dist/prebuilds/node/realm.node
 
       - name: Build lazer (macOS x64)
         if: matrix.os == 'macos-latest-large'
         run: |
           cd lazer
           npm run build:mac-x64
+          mkdir -p dist/prebuilds/node
+          cp node_modules/realm/prebuilds/node/realm.node dist/prebuilds/node/realm.node
 
       - name: Build lazer (macOS ARM64)
         if: matrix.os == 'macos-latest'
         run: |
           cd lazer
           npm run build:mac-arm64
+          mkdir -p dist/prebuilds/node
+          cp node_modules/realm/prebuilds/node/realm.node dist/prebuilds/node/realm.node
 
       - name: Build app (Windows)
         if: matrix.os == 'windows-latest'
@@ -171,7 +179,7 @@ jobs:
           cp -r 'osuRadio/ffmpeg_bin' 'osu!Radio-linux/'
           cp -r 'osuRadio/img' 'osu!Radio-linux/'
           cp 'dist/updater' 'osu!Radio-linux'
-          cp 'lazer/dist/lazer' 'osu!Radio-linux'
+          cp -r lazer/dist/. osu!Radio-linux/
           cp 'osuRadio/Osu!RadioIcon.png' 'osu!Radio-linux/'
           tar -czf 'osu!Radio.tar.gz' -C 'osu!Radio-linux' .
 
@@ -186,7 +194,7 @@ jobs:
           cp -r 'osuRadio/Background Video' "${DIST_PATH}/osu!Radio.app/Contents/Resources/"
           cp -r 'osuRadio/ffmpeg_bin' "${DIST_PATH}/osu!Radio.app/Contents/Resources/"
           cp -r 'osuRadio/img' "${DIST_PATH}/osu!Radio.app/Contents/Resources/"
-          cp -r 'lazer/dist/lazer' "${DIST_PATH}/osu!Radio.app/Contents/Resources/"
+          cp -r lazer/dist/. "${DIST_PATH}/osu!Radio.app/Contents/Resources/"
 
       - name: Upload build artifacts (Windows)
         if: matrix.os == 'windows-latest'

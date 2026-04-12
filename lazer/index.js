@@ -1,4 +1,18 @@
 #!/usr/bin/env node
+if (process.pkg) {
+    const path = require('path');
+    const Module = require('module');
+    const originalLoad = Module._load;
+    const execDir = path.dirname(process.execPath);
+
+    Module._load = function(request, parent, isMain) {
+        if (request.includes('realm.node') || request.includes('#realm.node')) {
+            return originalLoad.call(this, path.join(execDir, 'prebuilds', 'node', 'realm.node'), parent, isMain);
+        }
+        return originalLoad.call(this, request, parent, isMain);
+    };
+}
+
 const Realm = require('realm');
 const path = require('path');
 const fs = require('fs');
