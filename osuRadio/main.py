@@ -4,7 +4,6 @@ import json
 import tempfile
 import shutil
 import tempfile
-import unicodedata
 from pathlib import Path
 from time import monotonic
 from PySide6.QtCore import (
@@ -87,7 +86,7 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
                 self.lazer_folder = QFileDialog.getExistingDirectory(
                     self, "Select osu! Lazer Folder (where client.realm lives)"
                 )
-                
+
                 # If "Both" and they cancel lazer, just continue with stable only
                 if not self.lazer_folder:
                     if clicked == lazer_btn:
