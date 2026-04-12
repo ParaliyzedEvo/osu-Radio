@@ -56,14 +56,47 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
 
         # Apply defaults if missing
         self.osu_folder          = settings.get("osu_folder")
-        self.lazer_folder = settings.get("lazer_folder")
+        self.lazer_folder        = settings.get("lazer_folder")
+
         if not self.osu_folder:
-            self.osu_folder = QFileDialog.getExistingDirectory(self, "Select osu! Songs Folder")
-            first_time_setup = True  # Force scan after folder selection
-            if not self.osu_folder:
+            # First time setup — ask which client they use
+            msg = QMessageBox(self)
+            msg.setWindowTitle("Welcome to osu!Radio!")
+            msg.setText(
+                "Which osu! client do you have?\n\n"
+                "You can add the other folder later from Settings."
+            )
+            stable_btn = msg.addButton("osu! Stable", QMessageBox.AcceptRole)
+            lazer_btn  = msg.addButton("osu! Lazer",  QMessageBox.AcceptRole)
+            both_btn   = msg.addButton("Both",         QMessageBox.AcceptRole)
+            msg.addButton(QMessageBox.Cancel)
+            show_modal(msg)
+            clicked = msg.clickedButton()
+
+            if clicked is None or clicked == msg.button(QMessageBox.Cancel):
                 sys.exit()
-        if not self.osu_folder:
-            sys.exit()
+
+            if clicked in (stable_btn, both_btn):
+                self.osu_folder = QFileDialog.getExistingDirectory(
+                    self, "Select osu! Stable Songs Folder"
+                )
+                if not self.osu_folder:
+                    sys.exit()
+
+            if clicked in (lazer_btn, both_btn):
+                self.lazer_folder = QFileDialog.getExistingDirectory(
+                    self, "Select osu! Lazer Folder (where client.realm lives)"
+                )
+                
+                # If "Both" and they cancel lazer, just continue with stable only
+                if not self.lazer_folder:
+                    if clicked == lazer_btn:
+                        sys.exit()
+
+            # Lazer-only users have no stable folder, use a dummy path that won't break things
+            if not self.osu_folder:
+                self.osu_folder = str(BASE_PATH / "no_stable")
+                Path(self.osu_folder).mkdir(exist_ok=True)
 
         self.light_mode         = settings.get("light_mode", False)
         self.ui_opacity         = settings.get("ui_opacity", 0.75)
