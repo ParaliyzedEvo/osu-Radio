@@ -65,8 +65,8 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
                 "Which osu! client do you have?\n\n"
                 "You can add the other folder later from Settings."
             )
-            stable_btn = msg.addButton("osu! Stable", QMessageBox.AcceptRole)
-            lazer_btn  = msg.addButton("osu! Lazer",  QMessageBox.AcceptRole)
+            stable_btn = msg.addButton("osu!Stable", QMessageBox.AcceptRole)
+            lazer_btn  = msg.addButton("osu!Lazer",  QMessageBox.AcceptRole)
             both_btn   = msg.addButton("Both",         QMessageBox.AcceptRole)
             msg.addButton(QMessageBox.Cancel)
             show_modal(msg)
