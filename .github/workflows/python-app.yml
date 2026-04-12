@@ -168,7 +168,9 @@ jobs:
 
       - name: Package output (Windows)
         if: matrix.os == 'windows-latest'
-        run: 7z a osu!Radio-windows.zip dist/osu!Radio/*
+        run: |
+          cp -r lazer/dist/. 'dist/osu!Radio/_internal/'
+          7z a osu!Radio-windows.zip dist/osu!Radio/*
 
       - name: Package output (Linux)
         if: matrix.os == 'ubuntu-latest'
