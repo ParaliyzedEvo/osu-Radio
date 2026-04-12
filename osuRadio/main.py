@@ -398,28 +398,18 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
         # Load from cache if available
         osu_cache = load_cache(self.osu_folder) or []
         custom_cache = load_cache(BASE_PATH / "custom_songs") or []
-        lazer_cache = load_cache(self.lazer_folder) if getattr(self, "lazer_folder", None) and os.path.isdir(self.lazer_folder) else []
+        lazer_cache = load_cache(self.lazer_folder) if getattr(self, "lazer_folder", None) and os.path.isdir(self.lazer_folder or "") else []
         lazer_cache = [s for s in (lazer_cache or []) if s.get("source") == "lazer"]
 
-        def normalize(s):
-            s = unicodedata.normalize("NFKC", s.strip().lower())
-            return " ".join(s.split())
-
-        lazer_hashes = {s.get("audio_hash") for s in lazer_cache if s.get("audio_hash")}
-        lazer_keys = {
-            (normalize(s.get("title", "")), normalize(s.get("artist", "")))
-            for s in lazer_cache
-        }
-
-        def is_lazer_dupe(song):
-            h = song.get("audio_hash")
-            if h and h in lazer_hashes:
-                return True
-            return (normalize(song.get("title", "")), normalize(song.get("artist", ""))) in lazer_keys
-
-        osu_cache = [s for s in osu_cache if not is_lazer_dupe(s)]
-        custom_cache = [s for s in custom_cache if not is_lazer_dupe(s)]
-        combined_cache = osu_cache + custom_cache + lazer_cache
+        # No dedup needed here since save_cache already handles it
+        # But do a final safety dedup just in case
+        seen_keys = set()
+        combined_cache = []
+        for s in lazer_cache + osu_cache + custom_cache:  # lazer first so it wins
+            key = (s.get("title","").strip().lower(), s.get("artist","").strip().lower())
+            if key not in seen_keys:
+                seen_keys.add(key)
+                combined_cache.append(s)
         
         if combined_cache and not first_setup:
             is_valid, status_msg, missing_songs = validate_cache(self.osu_folder)

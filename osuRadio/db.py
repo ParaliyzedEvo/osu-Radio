@@ -67,7 +67,8 @@ def validate_cache(folder) -> Tuple[bool, str, List[Dict]]:
             current_mtime = str(os.path.getmtime(folder_str))
             
             cursor.execute(
-                "SELECT title, artist, mapper, audio, background, length, osu_file, folder, source_folder FROM songs WHERE source_folder = ? OR source_folder IS NULL",
+                "SELECT title, artist, mapper, audio, background, length, osu_file, folder, source_folder "
+                "FROM songs WHERE source_folder = ?",
                 (folder_str,)
             )
             cached_songs = [
@@ -116,8 +117,8 @@ def load_cache(folder) -> Optional[List[Dict]]:
                 SELECT title, artist, mapper, audio, background, length,
                        osu_file, folder, source, audio_hash
                 FROM songs 
-                WHERE source_folder = ? OR (source_folder IS NULL AND folder LIKE ?)
-            """, (folder_str, f"{folder_str}%"))
+                WHERE source_folder = ?
+            """, (folder_str,))
             
             songs = [
                 dict(zip(["title", "artist", "mapper", "audio", "background",
@@ -129,20 +130,15 @@ def load_cache(folder) -> Optional[List[Dict]]:
             for song in songs:
                 source = song.get("source", "stable")
                 song_folder = Path(song.get("folder", ""))
-                audio = song.get("audio", "")
                 audio_hash = song.get("audio_hash", "")
 
                 if source == "lazer":
-                    # Lazer
                     hash_file = song_folder / audio_hash if audio_hash else song_folder
                     if hash_file.exists() and hash_file.is_file():
                         valid_songs.append(song)
                 else:
-                    # Stable/custom
+                    audio = song.get("audio", "")
                     if audio and (song_folder / audio).exists():
-                        valid_songs.append(song)
-                    elif not audio:
-                        # Custom songs
                         valid_songs.append(song)
 
             return valid_songs if valid_songs else None
@@ -193,11 +189,19 @@ def save_cache(folder, maps: List[Dict], source: str = 'stable'):
     try:
         with sqlite3.connect(DATABASE_FILE) as conn:
             cursor = conn.cursor()
+            if source == 'stable':
+                cursor.execute("SELECT title, artist FROM songs WHERE source = 'lazer'")
+                lazer_set = {(row[0], row[1]) for row in cursor.fetchall()}
+                maps = [
+                    s for s in maps 
+                    if (s.get("title"), s.get("artist")) not in lazer_set
+                ]
+                print(f"[save_cache] After lazer dedup: {len(maps)} stable songs to save")
+
             cursor.execute("BEGIN TRANSACTION")
             
             for s in maps:
                 audio_hash = s.get("audio_hash")
-                background_hash = s.get("background_hash")
 
                 if source == 'lazer':
                     cursor.execute("""
@@ -205,24 +209,15 @@ def save_cache(folder, maps: List[Dict], source: str = 'stable'):
                         WHERE title = ? AND artist = ? AND source = 'stable'
                     """, (s.get("title"), s.get("artist")))
 
-                elif source == 'stable':
-                    cursor.execute("""
-                        SELECT 1 FROM songs
-                        WHERE title = ? AND artist = ? AND source = 'lazer'
-                        LIMIT 1
-                    """, (s.get("title"), s.get("artist")))
-                    if cursor.fetchone():
-                        continue
-
                 cursor.execute("""
                     INSERT OR REPLACE INTO songs
                     (title, artist, mapper, audio, background, length, 
-                     osu_file, folder, source_folder, source, audio_hash, background_hash)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (
+                     osu_file, folder, source_folder, source, audio_hash)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (
                         s.get("title"), s.get("artist"), s.get("mapper"),
                         s.get("audio"), s.get("background"), s.get("length", 0),
                         s.get("osu_file", ""), s.get("folder"), folder_str,
-                        source, audio_hash, background_hash
+                        source, audio_hash
                     ))
             
             cursor.execute(
