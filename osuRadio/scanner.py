@@ -1,14 +1,15 @@
 import os
+import sqlite3
 from pathlib import Path
-from PySide6.QtCore import Qt, Signal, QThread
+from PySide6.QtCore import Qt, Signal, QThread, QTimer
 from PySide6.QtWidgets import QApplication, QLabel, QMessageBox, QProgressDialog
-from osuRadio.config import BASE_PATH, CUSTOM_SONGS_PATH
-from osuRadio.lazer import LazerScanner
+from osuRadio.config import BASE_PATH, CUSTOM_SONGS_PATH, DATABASE_FILE
+from osuRadio.lazer import LazerScanner, compute_file_hash
 from osuRadio.msg import show_modal
 from osuRadio.parser import OsuParser
 from osuRadio.db import (
-    load_cache, save_cache, validate_cache, 
-    remove_missing_songs
+    load_cache, save_cache, validate_cache,
+    remove_missing_songs, get_audio_path
 )
 
 class LibraryScanner(QThread):
@@ -27,7 +28,7 @@ class LibraryScanner(QThread):
         for root, _, files in os.walk(self.folder):
             total_files += sum(1 for f in files if f.lower().endswith(".osu"))
         
-        self.progress_update.emit(f"🔍 Scanning folder... (found {total_files} .osu files)")
+        self.progress_update.emit(f"[osu!Stable] 🔍 Scanning folder... (found {total_files} .osu files)")
         
         processed = 0
         skipped_no_audio = 0
@@ -68,7 +69,7 @@ class LibraryScanner(QThread):
                             uniq[key] = s
                             
                         if processed % 10 == 0:
-                            msg = f"🎵 Processing: {artist} - {title} ({processed}/{total_files})"
+                            msg = f"[osu!Stable] 🎵 Processing: {artist} - {title} ({processed}/{total_files})"
                             self.progress_update.emit(msg)
                             
                     except Exception as e:
@@ -79,7 +80,7 @@ class LibraryScanner(QThread):
             return
 
         library = list(uniq.values())
-        self.progress_update.emit(f"💾 Saving {len(library)} valid beatmaps to cache...")
+        self.progress_update.emit(f"[osu!Stable] 💾 Saving {len(library)} valid beatmaps to cache...")
         if skipped_no_audio > 0:
             print(f"[LibraryScanner] Skipped {skipped_no_audio} beatmaps with missing/no audio files.")
         
@@ -89,18 +90,16 @@ class LibraryScanner(QThread):
             print("[LibraryScanner] Interruption requested before emitting 'done' signal.")
             return
 
-        self.progress_update.emit(f"✅ Import complete! ({len(library)} beatmaps)")
+        self.progress_update.emit(f"[osu!Stable] ✅ Import complete! ({len(library)} beatmaps)")
         self.done.emit(library)
         print("[LibraryScanner] 'done' signal emitted.")
 
 class LibraryMixin:
     def _on_lazer_scan_complete(self, lazer_songs):
+        self._lazer_scan_pending = False
         print(f"[LazerMerge] Starting with library size: {len(self.library)}")
         print(f"[LazerScan] Got {len(lazer_songs)} songs from lazer")
-        # Merge into existing library
-        existing_hashes = {
-            s.get("audio_hash") for s in self.library if s.get("audio_hash")
-        }
+        existing_hashes = {s.get("audio_hash") for s in self.library if s.get("audio_hash")}
         existing_keys = {
             (s.get("title", "").strip().lower(), s.get("artist", "").strip().lower())
             for s in self.library
@@ -111,17 +110,14 @@ class LibraryMixin:
         for song in lazer_songs:
             h = song.get("audio_hash")
             key = (song.get("title", "").strip().lower(), song.get("artist", "").strip().lower())
-
             if h and h in existing_hashes:
-                # Remove the stable duplicate, prefer lazer
                 self.library = [s for s in self.library if s.get("audio_hash") != h]
                 self.library.append(song)
                 replaced += 1
             elif key in existing_keys:
-                # Hash didn't match but title+artist did — still prefer lazer
                 self.library = [
                     s for s in self.library
-                    if (s.get("title","").strip().lower(), s.get("artist","").strip().lower()) != key
+                    if (s.get("title", "").strip().lower(), s.get("artist", "").strip().lower()) != key
                 ]
                 self.library.append(song)
                 replaced += 1
@@ -130,32 +126,31 @@ class LibraryMixin:
                 existing_keys.add(key)
                 added += 1
 
-        self.queue = list(self.library)
-        self.populate_list(self.queue)
-        self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
         print(f"[LazerScan] Merged: {added} new, {replaced} replaced stable dupes")
-        self._backfill_stable_hashes()
+        
+        QTimer.singleShot(500, self._backfill_stable_hashes)
         self._lazer_scan_done = True
 
-        # If autoplay was deferred, trigger it now
+        if hasattr(self, "_stable_reload_result") and self._stable_reload_result:
+            stable_library, osu_count, missing_count = self._stable_reload_result
+            self._stable_reload_result = None
+            self._finalize_library(stable_library, osu_count, missing_count)
+
         if getattr(self, "_deferred_autoplay", False):
             self._deferred_autoplay = False
             if self.queue:
                 self.play_song_at_index(0)
 
-        # If currently playing song was replaced by a lazer version, update the path
-        if hasattr(self, 'current_index') and self.queue:
+        if hasattr(self, "current_index") and self.queue:
             current_song = self.queue[self.current_index] if self.current_index < len(self.queue) else None
             if current_song and current_song.get("source") == "lazer":
                 print(f"[LazerScan] Current song updated to lazer source: {current_song.get('title')}")
+                if getattr(self, "is_playing", False):
+                    current_pos = self.slider.value()
+                    self.play_song_at_index(self.current_index)
+                    QTimer.singleShot(300, lambda: self.seek(current_pos))
 
     def _backfill_stable_hashes(self):
-        # Compute and store audio hashes for stable songs
-        import sqlite3
-        from osuRadio.lazer import compute_file_hash
-        from osuRadio.config import DATABASE_FILE
-        from osuRadio.db import get_audio_path
-
         needs_hash = [s for s in self.library if s.get("source") != "lazer" and not s.get("audio_hash")]
         if not needs_hash:
             return
@@ -180,8 +175,54 @@ class LibraryMixin:
         except Exception as e:
             print(f"[HashBackfill] Error: {e}")
 
+    def _make_progress_dialog(self, reason):
+        self.progress = QProgressDialog("Scanning...", None, 0, 0, self)
+        self.progress.setWindowModality(Qt.ApplicationModal)
+        self.progress.setWindowTitle("osu!Radio - Scanning Maps")
+        self.progress.setFixedSize(500, 100)
+        self.progress.setCancelButton(None)
+        self.progress.setMinimumDuration(0)
+        self.progress_label = QLabel(f"📂 {reason}\nStarting scan…")
+        self.progress.setLabel(self.progress_label)
+
+        def handle_close(ev):
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Question)
+            msg.setWindowTitle("Cancel Beatmap Scan?")
+            msg.setText(
+                "Are you sure you want to cancel scanning for beatmaps?\n\n"
+                "The scan is in progress and cancelling may leave your library incomplete.\n"
+                "To run it again later, click 'Reload Maps' in the top right."
+            )
+            msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            show_modal(msg)
+            reply = msg.result()
+            if reply == QMessageBox.Yes:
+                self._progress_user_closed = True
+                if hasattr(self, "_scanner") and self._scanner.isRunning():
+                    self._scanner.requestInterruption()
+                if hasattr(self, "_lazer_scanner") and self._lazer_scanner.isRunning():
+                    self._lazer_scanner.requestInterruption()
+                self.progress.cancel()
+                ev.accept()
+            else:
+                ev.ignore()
+
+        self.progress.closeEvent = handle_close
+        self.progress.show()
+        QApplication.processEvents()
+
     def reload_songs(self, force_rescan=False):
+        self._stable_reload_result = None
+        self._lazer_scan_pending = bool(
+            getattr(self, "lazer_folder", None) and os.path.isdir(self.lazer_folder or "")
+        )
         self._progress_user_closed = False
+        has_real_stable = (
+            getattr(self, "osu_folder", None)
+            and os.path.isdir(self.osu_folder)
+            and not self.osu_folder.endswith("no_stable")
+        )
 
         is_valid, status_msg, missing_songs = validate_cache(self.osu_folder)
         print(f"[reload_songs] Cache validation: {status_msg}")
@@ -205,7 +246,6 @@ class LibraryMixin:
                 clicked = msg.clickedButton()
                 
                 if clicked == clean_btn:
-                    # Just remove missing songs
                     removed = remove_missing_songs(missing_songs)
                     osu_cache = load_cache(self.osu_folder)
                     custom_cache = load_cache(BASE_PATH / "custom_songs")
@@ -218,7 +258,7 @@ class LibraryMixin:
                         self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
                         
                         QMessageBox.information(
-                            self, 
+                            self,
                             "Cleanup Complete",
                             f"Removed {removed} missing song(s) from cache.\n"
                             f"Library now has {len(combined_cache)} songs."
@@ -257,65 +297,42 @@ class LibraryMixin:
         
         print(f"[reload_songs] {'Force rescanning' if force_rescan else 'Cache invalid, rescanning'} folder: {self.osu_folder}")
         
-        # Stop previous scan if running
         if hasattr(self, "_scanner") and self._scanner.isRunning():
-            print("[reload_songs] Interrupting previous scanner...")
+            print("[reload_songs] Interrupting previous stable scanner...")
             self._scanner.requestInterruption()
             if not self._scanner.wait(5000):
-                print("[reload_songs] Forcing scanner termination...")
                 self._scanner.terminate()
                 self._scanner.wait()
 
-        rescan_reason = "Full rescan requested" if force_rescan else status_msg
-        self.progress = QProgressDialog("Importing beatmaps...", None, 0, 0, self)
-        self.progress.setWindowModality(Qt.ApplicationModal)
-        self.progress.setWindowTitle("osu!Radio - Scanning Maps")
-        self.progress.setFixedSize(500, 100)
-        self.progress.setCancelButton(None)
-        self.progress.setMinimumDuration(0)
-        self.progress_label = QLabel(f"📂 {rescan_reason}\nStarting scan…")
-        self.progress.setLabel(self.progress_label)
+        if hasattr(self, "_lazer_scanner") and self._lazer_scanner.isRunning():
+            print("[reload_songs] Interrupting previous lazer scanner...")
+            self._lazer_scanner.requestInterruption()
+            self._lazer_scanner.wait(3000)
+        
+        if has_real_stable and self._lazer_scan_pending:
+            rescan_reason = "Scanning osu!Stable + osu!Lazer…"
+        elif self._lazer_scan_pending:
+            rescan_reason = "Scanning osu!Lazer…"
+        else:
+            rescan_reason = "Full rescan requested" if force_rescan else status_msg
 
-        def handle_close(ev):
-            msg = QMessageBox(self)
-            msg.setIcon(QMessageBox.Question)
-            msg.setWindowTitle("Cancel Beatmap Scan?")
-            msg.setText(
-                "Are you sure you want to cancel scanning for beatmaps?\n\n"
-                "The scan is in progress and cancelling may leave your library incomplete.\n"
-                "To run it again later, click 'Reload Maps' in the top right."
-            )
-            msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-            show_modal(msg)
-            reply = msg.result()
-            if reply == QMessageBox.Yes:
-                self._progress_user_closed = True
-                if hasattr(self, "_scanner") and self._scanner.isRunning():
-                    self._scanner.requestInterruption()
-                self.progress.cancel()
-                ev.accept()
-            else:
-                ev.ignore()
-
-        self.progress.closeEvent = handle_close
-        self.progress.show()
-        QApplication.processEvents()
+        self._make_progress_dialog(rescan_reason)
 
         self._scanner = LibraryScanner(self.osu_folder)
-        self._scanner.progress_update.connect(self.progress_label.setText)
+        self._scanner.progress_update.connect(self._on_progress_update)
         self._scanner.done.connect(self._on_reload_complete)
         self._scanner.start()
 
-        # Kick off lazer scan if folder is set
-        if getattr(self, "lazer_folder", None) and os.path.isdir(self.lazer_folder):
-            if hasattr(self, "_lazer_scanner") and self._lazer_scanner.isRunning():
-                self._lazer_scanner.requestInterruption()
-                self._lazer_scanner.wait(3000)
+        if self._lazer_scan_pending:
             self._lazer_scanner = LazerScanner(self.lazer_folder)
-            self._lazer_scanner.progress_update.connect(self.progress_label.setText)
+            self._lazer_scanner.progress_update.connect(self._on_progress_update)
             self._lazer_scanner.done.connect(self._on_lazer_scan_complete)
             self._lazer_scanner.start()
-        
+
+    def _on_progress_update(self, text):
+        if hasattr(self, "progress_label") and self.progress_label:
+            self.progress_label.setText(text)
+
     def _on_reload_complete(self, library):
         valid_library = []
         missing_count = 0
@@ -326,55 +343,55 @@ class LibraryMixin:
                 valid_library.append(song)
             else:
                 missing_count += 1
-                print(f"[reload_complete] WARNING: Song in cache but audio missing: {song.get('title')}")
         
         library = valid_library
-        
         if missing_count > 0:
             print(f"[reload_complete] ⚠️ Found {len(library)} beatmaps, but {missing_count} have missing audio files")
         else:
-            print(f"[reload_complete] ✅ Found {len(valid_library)} songs from osu! folder.")
-        
+            print(f"[reload_complete] ✅ Found {len(library)} songs from osu! folder.")
+
+        self._stable_reload_result = (library, len(library), missing_count)
+
+        if getattr(self, "_lazer_scan_pending", False):
+            self.library = library
+            self.queue = list(library)
+            self.populate_list(self.queue)
+            self.queue_lbl.setText(f"Queue: {len(self.queue)} songs (lazer loading...)")
+        else:
+            self._finalize_library(library, len(library), missing_count)
+
+    def _finalize_library(self, stable_library, osu_count, missing_count):
         CUSTOM_SONGS_PATH = BASE_PATH / "custom_songs"
+        custom_count = 0
         if CUSTOM_SONGS_PATH.exists() and any(CUSTOM_SONGS_PATH.iterdir()):
-            self.progress_label.setText("📥 Scanning custom songs folder...")
-            QApplication.processEvents()
-            
-            print("[reload_complete] 📥 Scanning custom_songs folder...")
-            
+            self._on_progress_update("📥 Scanning custom songs folder...")
+            print("[finalize] 📥 Scanning custom_songs folder...")
             custom_cache = load_cache(CUSTOM_SONGS_PATH)
-            
-            if not custom_cache or not hasattr(self, '_scanner'):
-                print("[reload_complete] Importing custom audio files...")
+            if not custom_cache:
+                print("[finalize] Importing custom audio files...")
                 self.import_custom_audio(CUSTOM_SONGS_PATH)
                 custom_cache = load_cache(CUSTOM_SONGS_PATH)
-            else:
-                print(f"[reload_complete] Loaded {len(custom_cache)} custom songs from cache")
-            
-            combined_library = library + (custom_cache or [])
-            custom_count = len(custom_cache or [])  # ← capture NOW before lazer merge
-        else:
-            combined_library = library
-            custom_count = 0
+            stable_library = stable_library + (custom_cache or [])
+            custom_count = len(custom_cache or [])
 
-        lazer_songs_already_merged = [s for s in self.library if s.get("source") == "lazer"]
-
-        if lazer_songs_already_merged:
+        # Merge lazer on top
+        combined_library = stable_library
+        lazer_songs = [s for s in self.library if s.get("source") == "lazer"]
+        if lazer_songs:
             lazer_keys = {
-                (s.get("title","").strip().lower(), s.get("artist","").strip().lower())
-                for s in lazer_songs_already_merged
+                (s.get("title", "").strip().lower(), s.get("artist", "").strip().lower())
+                for s in lazer_songs
             }
             combined_library = [
-                s for s in combined_library
-                if (s.get("title","").strip().lower(), s.get("artist","").strip().lower()) not in lazer_keys
-            ] + lazer_songs_already_merged
+                s for s in stable_library
+                if (s.get("title", "").strip().lower(), s.get("artist", "").strip().lower()) not in lazer_keys
+            ] + lazer_songs
 
         self.library = combined_library
         self.queue = list(combined_library)
         self.populate_list(self.queue)
         self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
-        
-        print(f"[reload_complete] ✅ Total: {len(combined_library)} songs in library.")
+        print(f"[finalize] ✅ Total: {len(combined_library)} songs in library.")
 
         if hasattr(self, "progress") and self.progress:
             self.progress.closeEvent = lambda ev: ev.accept()
@@ -382,11 +399,11 @@ class LibraryMixin:
             self.progress = None
 
         if not getattr(self, "_progress_user_closed", False):
-            osu_count = len(library)
-            
+            lazer_count = sum(1 for s in combined_library if s.get("source") == "lazer")
             msg_text = (
                 f"✅ Successfully imported {len(combined_library)} songs!\n\n"
-                f"• osu! beatmaps: {osu_count}\n"
+                f"• osu!Stable beatmaps: {osu_count}\n"
+                f"• osu!Lazer songs: {lazer_count}\n"
                 f"• Custom songs: {custom_count}\n"
             )
             if missing_count > 0:
@@ -430,7 +447,7 @@ class LibraryMixin:
             
             choice = msg.result()
             
-            if choice == 0:  # Clean up
+            if choice == 0:
                 removed = remove_missing_songs(missing_songs)
                 osu_cache = load_cache(self.osu_folder)
                 custom_cache = load_cache(BASE_PATH / "custom_songs")
@@ -443,10 +460,10 @@ class LibraryMixin:
                     self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
                     print(f"[check_and_update_cache] Cleaned cache: removed {removed}, kept {len(combined_cache)}")
                     return True
-            elif choice == 1:  # Rescan
+            elif choice == 1:
                 self.reload_songs(force_rescan=True)
                 return True
-            else:  # Cancel
+            else:
                 return False
         
         else:

@@ -100,16 +100,58 @@ class LazerScanner(QThread):
         self.lazer_dir = lazer_dir
 
     def run(self):
-        self.progress_update.emit("Reading osu!lazer library...")
+        self.progress_update.emit("[osu!Lazer] 📖 Reading osu!Lazer library...")
         raw = run_lazer_reader(self.lazer_dir)
         if not raw:
-            self.progress_update.emit("⚠️ No lazer data found or reader failed.")
+            self.progress_update.emit("[osu!Lazer] ⚠️ No lazer data found or reader failed.")
             self.done.emit([])
             return
 
-        self.progress_update.emit(f"🔄 Processing {len(raw)} lazer beatmaps...")
-        songs = convert_lazer_to_songs(raw)
-        self.progress_update.emit(f"Saving {len(songs)} lazer songs to cache...")
+        total = len(raw)
+        self.progress_update.emit(f"[osu!Lazer] 🔍 Scanning osu!Lazer... (found {total} beatmaps)")
+
+        seen = {}
+        for i, entry in enumerate(raw):
+            if self.isInterruptionRequested():
+                print("[LazerScanner] Interruption requested, stopping.")
+                return
+
+            if not entry.get("fileExists"):
+                continue
+
+            key = (
+                entry.get("title", "").strip(),
+                entry.get("artist", "").strip(),
+                entry.get("mapper", "").strip(),
+            )
+            if key not in seen:
+                seen[key] = entry
+
+            if i % 10 == 0:
+                artist = entry.get("artist", "Unknown")
+                title = entry.get("title", "Unknown")
+                self.progress_update.emit(
+                    f"[osu!Lazer] 🎵 Processing: {artist} - {title} ({i + 1}/{total})"
+                )
+
+        songs = []
+        for entry in seen.values():
+            songs.append({
+                "title":           entry.get("title", "Unknown"),
+                "artist":          entry.get("artist", "Unknown"),
+                "mapper":          entry.get("mapper", "Unknown"),
+                "audio":           entry.get("audioFilename", "audio.mp3"),
+                "audio_path":      entry.get("audioPath", ""),
+                "audio_hash":      entry.get("audioHash", ""),
+                "background":      entry.get("backgroundPath") or "",
+                "background_hash": entry.get("backgroundHash") or "",
+                "length":          0,
+                "osu_file":        "",
+                "folder":          entry.get("audioPath", ""),
+                "source":          "lazer",
+            })
+
+        self.progress_update.emit(f"[osu!Lazer] 💾 Saving {len(songs)} lazer songs to cache...")
         save_cache(self.lazer_dir, songs, source="lazer")
-        self.progress_update.emit(f"✅ Lazer import complete! ({len(songs)} songs)")
+        self.progress_update.emit(f"[osu!Lazer] ✅ Lazer import complete! ({len(songs)} songs)")
         self.done.emit(songs)
