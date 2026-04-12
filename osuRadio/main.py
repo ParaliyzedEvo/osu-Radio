@@ -186,9 +186,7 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
         self.song_list = QListWidget()
         self.song_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.song_list.customContextMenuRequested.connect(self.onSongContextMenu)
-        self.song_list.itemDoubleClicked.connect(
-            lambda itm: self.play_song_at_index(self.song_list.row(itm))
-        )
+        self.song_list.itemDoubleClicked.connect(self._on_song_double_clicked)
         ll.addWidget(self.song_list)
         self.populate_list(self.queue)
         grid.addWidget(left, 0, 0)

@@ -11,7 +11,7 @@ import random
 from time import monotonic
 from pathlib import Path
 from PySide6.QtCore import (
-    QUrl, QTimer
+    QUrl, QTimer, Qt
 )
 from PySide6.QtWidgets import QMessageBox
 from PySide6.QtGui import (
@@ -470,3 +470,16 @@ class PlayerMixin:
         )
         
         QTimer.singleShot(200, lambda: self._finalize_seek_ui(pos))
+    
+    def _on_song_double_clicked(self, item):
+        song = item.data(Qt.UserRole)
+        try:
+            idx = self.queue.index(song)
+        except ValueError:
+            for i, s in enumerate(self.queue):
+                if s.get("title") == song.get("title") and s.get("artist") == song.get("artist"):
+                    idx = i
+                    break
+            else:
+                return
+        self.play_song_at_index(idx)
