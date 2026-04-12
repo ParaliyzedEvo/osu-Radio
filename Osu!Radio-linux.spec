@@ -1,15 +1,13 @@
 # -*- mode: python ; coding: utf-8 -*-
-from PyInstaller.utils.hooks import collect_submodules
-from PyInstaller.building.datastruct import Tree
+from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 
-tree_datas = Tree('lazer/dist', prefix='.')
 hiddenimports = collect_submodules('pynput') + ['simplejson']
 
 a = Analysis(
     ['osuRadio//main.py'],
     pathex=[],
     binaries=[('dist/updater','.'),('lazer/dist/lazer','.')],
-    datas=[('osuRadio/Background Video', 'Background Video'),('osuRadio/Osu!RadioIcon.ico','.'),('osuRadio/ffmpeg_bin','ffmpeg_bin'),('osuRadio/img','img')] + tree_datas,
+    datas=collect_data_files('lazer/dist') + [('osuRadio/Background Video', 'Background Video'),('osuRadio/Osu!RadioIcon.ico','.'),('osuRadio/ffmpeg_bin','ffmpeg_bin'),('osuRadio/img','img')],
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
