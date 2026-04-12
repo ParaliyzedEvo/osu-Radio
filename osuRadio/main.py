@@ -58,7 +58,7 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
         self.lazer_folder        = settings.get("lazer_folder")
 
         if not self.osu_folder:
-            # First time setup — ask which client they use
+            # First time setup, ask which client they use
             msg = QMessageBox(self)
             msg.setWindowTitle("Welcome to osu!Radio!")
             msg.setText(
