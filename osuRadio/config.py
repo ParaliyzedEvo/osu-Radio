@@ -20,10 +20,6 @@ else:
     ASSETS_PATH = BASE_PATH
 
 def resource_path(*parts) -> Path:
-    """
-    Return an absolute path to a resource, working for both
-    development and PyInstaller-frozen mode.
-    """
     return ASSETS_PATH.joinpath(*parts)
 
 # Files & folders
@@ -87,9 +83,9 @@ def get_lazer_reader_path():
     system = platform.system().lower()
     if getattr(sys, "frozen", False):
         if system == "windows":
-            return BASE_PATH / "lazer.exe"
+            return resource_path("lazer.exe")
         else:
-            return BASE_PATH / "lazer"
+            return resource_path("lazer")
     else:
         return BASE_PATH.parent / "lazer" / "index.js"
     

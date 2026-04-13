@@ -21,11 +21,6 @@ def compute_file_hash(path: str) -> str:
 
 
 def run_lazer_reader(lazer_dir: str, progress_cb=None) -> list:
-    """
-    Run the lazer reader subprocess.
-    progress_cb: optional callable(str) called periodically while waiting,
-                 so the caller can emit signals and keep Qt's event loop aware.
-    """
     reader_path = get_lazer_reader_path()
     frozen = getattr(sys, "frozen", False)
 
