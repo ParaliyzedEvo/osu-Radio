@@ -5,6 +5,8 @@
 [![Website](https://img.shields.io/badge/-Website-6a0dad?style=flat&logo=osu&logoColor=FFFFFF&labelColor=ff1493&color=6a0dad)](https://paraliyzed.net/)
 [![Donate](https://img.shields.io/badge/-Donate-FFDE21?style=flat&logo=paypal&logoColor=%23FFFFFF&labelColor=%2300c244&color=%2300c244)](https://paypal.me/Paraliyzedevo)
 
+osu!Radio is python based app in which it pulls the songs of the beatmaps you've downloaded (for both lazer and stable) into one place, kinda like spotify! (scuffed in terms of ui, heavily)
+
 ~~Basically this repo is my modified version of [ThunderBirdo's](https://www.youtube.com/@ThunderBirdOsu) code, "osu!Radio". What I did was clean up a few stuff while adding features of my own and changing some stuff that I think would be better for this kind of code. Welp that's all to explain.~~
 
 Me and ThunderBirdo are now collaborating in this repo to make osu!Radio V2!
