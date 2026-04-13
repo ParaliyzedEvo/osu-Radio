@@ -316,6 +316,13 @@ class LibraryMixin:
         else:
             rescan_reason = "Full rescan requested" if force_rescan else status_msg
 
+        if DATABASE_FILE.exists():
+            try:
+                DATABASE_FILE.unlink()
+                print("[reload_songs] 🗑️ Deleted songs.db for fresh rescan.")
+            except Exception as e:
+                print(f"[reload_songs] Failed to delete songs.db: {e}")
+
         self._make_progress_dialog(rescan_reason)
 
         if has_real_stable:
