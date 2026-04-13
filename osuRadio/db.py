@@ -50,6 +50,9 @@ def validate_cache(folder) -> Tuple[bool, str, List[Dict]]:
     
     # Convert Path to string if needed
     folder_str = str(folder) if isinstance(folder, Path) else folder
+
+    if folder_str.endswith("no_stable"):
+        return True, "No stable folder (lazer-only setup)", []
     
     if not os.path.exists(folder_str):
         return False, f"Folder not found: {folder_str}", []

@@ -318,10 +318,13 @@ class LibraryMixin:
 
         self._make_progress_dialog(rescan_reason)
 
-        self._scanner = LibraryScanner(self.osu_folder)
-        self._scanner.progress_update.connect(self._on_progress_update)
-        self._scanner.done.connect(self._on_reload_complete)
-        self._scanner.start()
+        if has_real_stable:
+            self._scanner = LibraryScanner(self.osu_folder)
+            self._scanner.progress_update.connect(self._on_progress_update)
+            self._scanner.done.connect(self._on_reload_complete)
+            self._scanner.start()
+        else:
+            self._stable_reload_result = ([], 0, 0)
 
         if self._lazer_scan_pending:
             self._lazer_scanner = LazerScanner(self.lazer_folder)
@@ -353,10 +356,7 @@ class LibraryMixin:
         self._stable_reload_result = (library, len(library), missing_count)
 
         if getattr(self, "_lazer_scan_pending", False):
-            self.library = library
-            self.queue = list(library)
-            self.populate_list(self.queue)
-            self.queue_lbl.setText(f"Queue: {len(self.queue)} songs (lazer loading...)")
+            pass
         else:
             self._finalize_library(library, len(library), missing_count)
 
