@@ -169,7 +169,7 @@ jobs:
       - name: Package output (Windows)
         if: matrix.os == 'windows-latest'
         run: |
-          cp -r lazer/dist/. 'dist/osu!Radio/_internal/'
+          Copy-Item -Path "lazer/dist/*" -Destination "dist/osu!Radio/_internal/" -Recurse -Force
           7z a osu!Radio-windows.zip dist/osu!Radio/*
 
       - name: Package output (Linux)
