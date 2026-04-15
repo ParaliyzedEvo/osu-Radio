@@ -196,9 +196,19 @@ class PitchAdjustedPlayer:
 
 def get_audio_duration(file_path):
     try:
-        probe = ffmpeg.probe(str(file_path))
-        duration = float(probe['format']['duration'])
-        return duration
+        result = subprocess.run(
+            [ffmpeg_path, "-i", str(file_path), "-f", "null", "-"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            **get_silent_subprocess_kwargs()
+        )
+        for line in result.stderr.splitlines():
+            if "Duration:" in line:
+                time_str = line.split("Duration:")[1].split(",")[0].strip()
+                h, m, s = time_str.split(":")
+                return float(h) * 3600 + float(m) * 60 + float(s)
+        return None
     except Exception as e:
         print(f"Error getting duration: {e}")
         return None
