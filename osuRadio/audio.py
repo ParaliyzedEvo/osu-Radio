@@ -39,7 +39,6 @@ def silent_popen(cmd, *args, **kwargs):
         kwargs.setdefault("creationflags", subprocess.CREATE_NO_WINDOW)
     return _original_popen(cmd, *args, **kwargs)
 
-# Apply once — this covers both ffmpeg-python internals and direct subprocess calls
 subprocess.Popen = silent_popen
 ffmpeg._run.Popen = silent_popen
 
