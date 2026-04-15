@@ -27,12 +27,21 @@ _original_popen = subprocess.Popen
 
 # Patch ffmpeg-python’s internal Popen to suppress terminal (for stream.run())
 def silent_popen(cmd, *args, **kwargs):
+    if isinstance(cmd, list) and cmd and cmd[0] == "ffmpeg":
+        cmd = [ffmpeg_path] + cmd[1:]
+    elif isinstance(cmd, str) and cmd.startswith("ffmpeg"):
+        cmd = ffmpeg_path + cmd[len("ffmpeg"):]
+
     if sys.platform.startswith("win"):
         si = subprocess.STARTUPINFO()
         si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        kwargs["startupinfo"] = si
-        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        kwargs.setdefault("startupinfo", si)
+        kwargs.setdefault("creationflags", subprocess.CREATE_NO_WINDOW)
     return _original_popen(cmd, *args, **kwargs)
+
+# Apply once — this covers both ffmpeg-python internals and direct subprocess calls
+subprocess.Popen = silent_popen
+ffmpeg._run.Popen = silent_popen
 
 ffmpeg._run.Popen = silent_popen
 
