@@ -209,6 +209,8 @@ def get_audio_duration(file_path):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             **get_silent_subprocess_kwargs()
         )
         for line in result.stderr.splitlines():
