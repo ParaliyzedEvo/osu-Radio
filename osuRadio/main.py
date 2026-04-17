@@ -595,6 +595,10 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
         
     def _tick_seekbar(self):
         player = self.pitch_player.player
+
+        if getattr(self.pitch_player, 'is_processing', False):
+            return
+
         if (
             player.playbackState() == QMediaPlayer.PlayingState
             and not player.isAvailable()
@@ -625,23 +629,20 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
             rate = float(text.replace("x", "").strip())
             if rate <= 0:
                 raise ValueError("Speed must be positive.")
-
             if abs(rate - self.pitch_player.playback_rate) < 0.01:
                 return
 
             self.playback_rate = rate
-            
-            # Get current song and position
             if not self.queue or self.current_index >= len(self.queue):
                 return
-                
+
             song = self.queue[self.current_index]
             path = get_audio_path(song)
             current_pos = self.slider.value()
-            
+
             print(f"[Speed Change] Changing from {self.pitch_player.playback_rate}x to {rate}x")
-            
-            # Replay the song at new speed from current position
+            self.playback_timer.stop()
+
             self.pitch_player.play(
                 str(path),
                 speed=rate,
@@ -650,13 +651,14 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
                 force_play=self.is_playing
             )
             
-            # Update UI
             self.current_duration = self.pitch_player.last_duration
             self.slider.setRange(0, self.current_duration)
             self.total_label.setText(self.format_time(self.current_duration))
-            
-            # Reset playback timer
             self._playback_start_time = monotonic() - (current_pos / 1000 / rate)
+
+            if self.is_playing:
+                self.playback_timer.start()
+
             default_speeds = ["0.5x", "0.75x", "1x", "1.25x", "1.5x", "2x"]
             self.speed_combo.blockSignals(True)
             self.speed_combo.clear()

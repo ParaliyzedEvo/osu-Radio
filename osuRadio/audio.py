@@ -99,6 +99,7 @@ class PitchAdjustedPlayer:
         self.last_start_ms = 0
         self.was_playing_before_seek = False
         self._pending_play = False
+        self.is_processing = False
 
         self.player.mediaStatusChanged.connect(self._start_after_load)
 
@@ -143,7 +144,9 @@ class PitchAdjustedPlayer:
                 print(f"[Cleanup Error] Could not delete {self.last_temp}: {e}")
 
         if preserve_pitch:
+            self.is_processing = True
             processed_file, _ = process_audio(input_path, speed=speed, adjust_pitch=True)
+            self.is_processing = False
             self.current_temp = Path(processed_file)
             file_url = QUrl.fromLocalFile(str(processed_file))
             self.last_duration = self._get_wav_duration_ms(str(processed_file))
