@@ -6,8 +6,8 @@ import tempfile
 import subprocess
 import tempfile
 import hashlib
-import sqlite3
 import random
+import platform
 from time import monotonic
 from pathlib import Path
 from PySide6.QtCore import (
@@ -23,10 +23,13 @@ from osuRadio.config import get_ffmpeg_bin_path, DATABASE_FILE, get_silent_subpr
 from osuRadio.db import get_audio_path
 
 ffmpeg_path = str(get_ffmpeg_bin_path())
+print(platform.machine())
+print(f"[FFmpeg] Expected path: {ffmpeg_path}")
+print(f"[FFmpeg] Exists: {Path(ffmpeg_path).exists()}")
 _original_popen = subprocess.Popen
 
 # Patch ffmpeg-python’s internal Popen to suppress terminal (for stream.run())
-def silent_popen(cmd, *args, **kwargs):
+def silent_global_popen(cmd=None, *args, **kwargs):
     if isinstance(cmd, list) and cmd and cmd[0] == "ffmpeg":
         cmd = [ffmpeg_path] + cmd[1:]
     elif isinstance(cmd, str) and cmd.startswith("ffmpeg"):
@@ -39,10 +42,8 @@ def silent_popen(cmd, *args, **kwargs):
         kwargs.setdefault("creationflags", subprocess.CREATE_NO_WINDOW)
     return _original_popen(cmd, *args, **kwargs)
 
-subprocess.Popen = silent_popen
-ffmpeg._run.Popen = silent_popen
-
-ffmpeg._run.Popen = silent_popen
+subprocess.Popen = silent_global_popen
+ffmpeg._run.Popen = silent_global_popen
 
 # Helper for silent subprocess.run settings
 def get_silent_subprocess_kwargs():
@@ -54,16 +55,6 @@ def get_silent_subprocess_kwargs():
             "creationflags": subprocess.CREATE_NO_WINDOW,
         }
     return {}
-    
-def silent_global_popen(*args, **kwargs):
-    if sys.platform.startswith("win"):
-        si = subprocess.STARTUPINFO()
-        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        kwargs.setdefault("startupinfo", si)
-        kwargs.setdefault("creationflags", subprocess.CREATE_NO_WINDOW)
-    return _original_popen(*args, **kwargs)
-
-subprocess.Popen = silent_global_popen
 
 # Patch ffmpeg.run(...) to use subprocess.run with suppressed terminal
 def custom_run(*args, **kwargs):
