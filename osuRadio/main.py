@@ -609,12 +609,7 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
         if self._playback_start_time is None:
             return
         
-        if self.preserve_pitch:
-            speed = self.pitch_player.playback_rate
-            elapsed_ms = int((monotonic() - self._playback_start_time) * 1000 * speed)
-        else:
-            elapsed_ms = int((monotonic() - self._playback_start_time) * 1000 * self.pitch_player.playback_rate)
-        
+        elapsed_ms = int((monotonic() - self._playback_start_time) * 1000)
         elapsed_ms = min(elapsed_ms, self.current_duration)
         if not getattr(self, "_user_dragging", False):
             self.slider.setValue(elapsed_ms)
@@ -654,7 +649,8 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
             self.current_duration = self.pitch_player.last_duration
             self.slider.setRange(0, self.current_duration)
             self.total_label.setText(self.format_time(self.current_duration))
-            self._playback_start_time = monotonic() - (current_pos / 1000 / rate)
+            adjusted_pos_ms = int(current_pos / rate)
+            self._playback_start_time = monotonic() - (adjusted_pos_ms / 1000)
 
             if self.is_playing:
                 self.playback_timer.start()

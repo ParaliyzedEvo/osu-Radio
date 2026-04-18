@@ -148,10 +148,9 @@ class PitchAdjustedPlayer:
             processed_file, _ = process_audio(input_path, speed=speed, adjust_pitch=True)
             self.is_processing = False
             self.current_temp = Path(processed_file)
-            file_url = QUrl.fromLocalFile(str(processed_file))
             self.last_duration = self._get_wav_duration_ms(str(processed_file))
-            self.player.setSource(file_url)
-            self.player.setPlaybackRate(1.0)  # Always 1.0 when using FFmpeg
+            self.player.setSource(QUrl.fromLocalFile(str(processed_file)))
+            self.player.setPlaybackRate(1.0)
             self._pending_play = True
         else:
             file_url = QUrl.fromLocalFile(str(input_path))
@@ -483,12 +482,12 @@ class PlayerMixin:
         song = self.queue[self.current_index]
         path = get_audio_path(song)
         speed = float(self.speed_combo.currentText().replace("x", ""))
-        self._playback_start_time = monotonic() - (pos / 1000 / speed)
+        self._playback_start_time = monotonic() - (pos / 1000)
         self.pitch_player.play(
             str(path), 
             speed=speed, 
             preserve_pitch=self.preserve_pitch, 
-            start_ms=pos, 
+            start_ms=pos,
             force_play=self.is_playing
         )
         
