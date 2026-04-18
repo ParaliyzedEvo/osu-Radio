@@ -641,6 +641,9 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
             song = self.queue[self.current_index]
             path = self._get_path(song)
             current_pos = self.slider.value()
+            old_rate = self.pitch_player.playback_rate
+            original_pos_ms = int(current_pos * old_rate)
+            new_pos_ms = int(original_pos_ms / rate)
 
             print(f"[Speed Change] Changing from {self.pitch_player.playback_rate}x to {rate}x")
             self.playback_timer.stop()
@@ -649,15 +652,14 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
                 str(path),
                 speed=rate,
                 preserve_pitch=self.preserve_pitch,
-                start_ms=current_pos,
+                start_ms=new_pos_ms,
                 force_play=self.is_playing
             )
             
             self.current_duration = self.pitch_player.last_duration
             self.slider.setRange(0, self.current_duration)
             self.total_label.setText(self.format_time(self.current_duration))
-            adjusted_pos_ms = int(current_pos / rate)
-            self._playback_start_time = monotonic() - (adjusted_pos_ms / 1000)
+            self._playback_start_time = monotonic() - (new_pos_ms / 1000)
 
             if not self.playback_timer.isActive():
                 self.playback_timer.start()
