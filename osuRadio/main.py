@@ -35,8 +35,9 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
                 print(f"[Startup Cleanup] ❌ Failed to delete cache: {e}")
         super().__init__()
         
-        self.library = []
-        self.queue   = []
+        self.library     = []
+        self.queue       = []
+        self._path_cache = {}
         self.current_index = 0
         self.media_key_listener = None
             
@@ -592,6 +593,12 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
         QTimer.singleShot(1000, lambda: self.check_updates())
         QTimer.singleShot(0, self.apply_window_flags)
         QTimer.singleShot(0, self._set_dynamic_max_size)
+
+    def _get_path(self, song):
+        key = (song.get("title"), song.get("artist"))
+        if key not in self._path_cache:
+            self._path_cache[key] = get_audio_path(song)
+        return self._path_cache[key]
         
     def _tick_seekbar(self):
         player = self.pitch_player.player
@@ -632,7 +639,7 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
                 return
 
             song = self.queue[self.current_index]
-            path = get_audio_path(song)
+            path = self._get_path(song)
             current_pos = self.slider.value()
 
             print(f"[Speed Change] Changing from {self.pitch_player.playback_rate}x to {rate}x")
@@ -652,7 +659,7 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
             adjusted_pos_ms = int(current_pos / rate)
             self._playback_start_time = monotonic() - (adjusted_pos_ms / 1000)
 
-            if self.is_playing:
+            if not self.playback_timer.isActive():
                 self.playback_timer.start()
 
             default_speeds = ["0.5x", "0.75x", "1x", "1.25x", "1.5x", "2x"]

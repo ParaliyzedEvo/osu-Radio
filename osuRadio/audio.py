@@ -119,15 +119,18 @@ class PitchAdjustedPlayer:
 
     def play(self, input_path: str, speed: float = 1.0, preserve_pitch: bool = True, start_ms: int = 0, force_play=False):
         if (
-            self.player.mediaStatus() == QMediaPlayer.LoadedMedia
-            and self._last_path == input_path
-            and self.playback_rate == speed
+            self._last_path == input_path
+            and abs(self.playback_rate - speed) < 0.01
             and self.preserve_pitch == preserve_pitch
         ):
-            print(f"[Resume] Resuming existing playback at {start_ms} ms")
+            print(f"[Resume] Reusing loaded media at {start_ms} ms")
+
             if start_ms > 0:
                 self.player.setPosition(start_ms)
-            self.player.play()
+
+            if force_play or self.was_playing_before_seek:
+                self.player.play()
+
             return
 
         self._last_path = input_path
@@ -317,17 +320,16 @@ class PlayerMixin:
 
     def _tick_seekbar(self):
         player = self.pitch_player.player
-        if (
-            player.playbackState() == QMediaPlayer.PlayingState
-            and (not player.isAvailable() or not player.isAvailable())
-        ):
-            print("[Tick] Detected silent playback with pitch adjustment — restarting audio")
-            self.seek(self.slider.value())
+
         if self._playback_start_time is None:
             return
-        speed = float(self.speed_combo.currentText().replace("x", ""))
-        elapsed_ms = int((monotonic() - self._playback_start_time) * 1000 * speed)
+
+        if player.playbackState() != QMediaPlayer.PlayingState:
+            return
+
+        elapsed_ms = int((monotonic() - self._playback_start_time) * 1000)
         elapsed_ms = min(elapsed_ms, self.current_duration)
+
         if not getattr(self, "_user_dragging", False):
             self.slider.setValue(elapsed_ms)
             self.elapsed_label.setText(self.format_time(elapsed_ms))
@@ -369,78 +371,38 @@ class PlayerMixin:
     def play_song_at_index(self, index):
         if index >= len(self.queue):
             return
-            
+
         self.current_index = index
         song = self.queue[index]
         path = get_audio_path(song)
 
-        self.current_duration = song.get("length", 0)
-        self._playback_start_time = monotonic()
-        self.slider.setRange(0, self.current_duration)
-        self.total_label.setText(self.format_time(self.current_duration))
-        self.playback_timer.start()
-        path = get_audio_path(song)
-
-        # Debug logging
         print(f"▶▶ play_song_at_index: idx={index}, file={path!r}")
-        print("    folder exists? ", os.path.isdir(song["folder"]))
-        print("    file exists?   ", os.path.isfile(path))
 
         if not path.exists():
-            print("⚠️  File not found, removing from queue:", path)
-            
-            # Remove the missing song from queue and library
-            self.queue.pop(index)
-            if song in self.library:
-                self.library.remove(song)
-            
-            try:
-                with sqlite3.connect(DATABASE_FILE) as conn:
-                    cursor = conn.cursor()
-                    cursor.execute(
-                        "DELETE FROM songs WHERE title = ? AND artist = ? AND audio = ? AND folder = ?",
-                        (song["title"], song["artist"], song["audio"], song["folder"])
-                    )
-                    conn.commit()
-                    print(f"[Cleanup] Removed missing song from database: {song['title']}")
-            except Exception as e:
-                print(f"[Cleanup] Failed to remove from database: {e}")
-            
-            # Update the UI
-            self.populate_list(self.queue)
-            self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
-            
-            QMessageBox.warning(
-                self, 
-                "Missing File Removed", 
-                f"The file for '{song['artist']} - {song['title']}' was not found and has been removed from your queue."
-            )
-            
-            self.now_lbl.setText("—")
-            self.is_playing = False
-            self.update_play_pause_icon()
-            self.playback_timer.stop()
-
-            if self.queue:
-                if index >= len(self.queue):
-                    self.current_index = len(self.queue) - 1
-                else:
-                    self.current_index = index
-            
+            print("⚠️ File missing:", path)
             return
 
         speed = float(self.speed_combo.currentText().replace("x", ""))
-        self.pitch_player.was_playing_before_seek = True
-        self.pitch_player.play(str(path), speed=speed, preserve_pitch=self.preserve_pitch, force_play=True)
+
+        # Start playback
+        self.pitch_player.play(
+            str(path),
+            speed=speed,
+            preserve_pitch=self.preserve_pitch,
+            force_play=True
+        )
+
+        # Sync UI
         self.current_duration = self.pitch_player.last_duration
         self._playback_start_time = monotonic()
         self.slider.setRange(0, self.current_duration)
-        self.total_label.setText(self.format_time(self.current_duration))
-        self.elapsed_label.setText("0:00")
         self.slider.setValue(0)
-        self.playback_timer.start()
+        self.elapsed_label.setText("0:00")
+        self.total_label.setText(self.format_time(self.current_duration))
 
-        # Update UI
+        if not self.playback_timer.isActive():
+            self.playback_timer.start()
+
         self.now_lbl.setText(f"{song.get('title','')} — {song.get('artist','')}")
         self.song_list.setCurrentRow(index)
         self.is_playing = True
@@ -478,20 +440,12 @@ class PlayerMixin:
     def seek(self, pos):
         if not self.queue or self.current_index >= len(self.queue):
             return
-        
-        song = self.queue[self.current_index]
-        path = get_audio_path(song)
-        speed = float(self.speed_combo.currentText().replace("x", ""))
+
+        player = self.pitch_player.player
         self._playback_start_time = monotonic() - (pos / 1000)
-        self.pitch_player.play(
-            str(path), 
-            speed=speed, 
-            preserve_pitch=self.preserve_pitch, 
-            start_ms=pos,
-            force_play=self.is_playing
-        )
-        
-        QTimer.singleShot(200, lambda: self._finalize_seek_ui(pos))
+        player.setPosition(pos)
+        self.slider.setValue(pos)
+        self.elapsed_label.setText(self.format_time(pos))
     
     def _on_song_double_clicked(self, item):
         song = item.data(Qt.UserRole)
