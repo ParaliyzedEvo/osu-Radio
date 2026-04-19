@@ -2,7 +2,7 @@ import sys
 import os
 import platform
 from pathlib import Path
-import subprocess as _subprocess
+import subprocess
 
 # Paths & Environment
 IS_WINDOWS = os.name == "nt"
@@ -91,7 +91,6 @@ def get_lazer_reader_path():
     
 def get_silent_subprocess_kwargs():
     if IS_WINDOWS:
-        import subprocess
         si = subprocess.STARTUPINFO()
         si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         return {
