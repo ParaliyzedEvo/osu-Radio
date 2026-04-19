@@ -4,7 +4,6 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-
 def setup_logging(base_path: Path):
     log_dir = base_path / "logs"
     log_dir.mkdir(exist_ok=True)

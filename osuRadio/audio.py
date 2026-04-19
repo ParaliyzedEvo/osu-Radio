@@ -114,11 +114,7 @@ class PitchAdjustedPlayer:
             and abs(self.playback_rate - speed) < 0.01
             and self.preserve_pitch == preserve_pitch
         ):
-            print(f"[Resume] Reusing loaded media at {start_ms} ms")
-
-            if start_ms > 0:
-                self.player.setPosition(start_ms)
-
+            self.player.setPosition(start_ms)
             if force_play or self.was_playing_before_seek:
                 self.player.play()
 
@@ -437,6 +433,9 @@ class PlayerMixin:
         player.setPosition(pos)
         self.slider.setValue(pos)
         self.elapsed_label.setText(self.format_time(pos))
+
+        if not self.is_playing:
+            player.pause()
     
     def _on_song_double_clicked(self, item):
         song = item.data(Qt.UserRole)
