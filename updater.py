@@ -3,7 +3,7 @@ import tkinter as tk
 from tkinter import ttk
 
 PRESERVE_FILES = {"songs.db", "settings.json"}
-PRESERVE_DIRS = {"custom_songs"}
+PRESERVE_DIRS = {"custom_songs", "logs"}
 
 log_path = "updater_log.txt"
 log = open(log_path, "w", encoding="utf-8")
