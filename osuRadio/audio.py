@@ -105,7 +105,7 @@ class PitchAdjustedPlayer:
         self.last_temp = None
         self.playback_rate = 1.0
         self.preserve_pitch = True
-
+        self.paused_externally = False
         self.last_start_ms = 0
         self.was_playing_before_seek = False
         self._pending_play = False
@@ -143,6 +143,7 @@ class PitchAdjustedPlayer:
         self.preserve_pitch = preserve_pitch
         self.playback_rate = speed
         self.last_start_ms = start_ms
+        self.paused_externally = False
         self.was_playing_before_seek = self.player.playbackState() == QMediaPlayer.PlayingState or force_play
 
         if self.last_temp and self.last_temp.exists() and self.last_temp != self.current_temp:
@@ -183,24 +184,25 @@ class PitchAdjustedPlayer:
 
     def _start_after_load(self, status):
         if status == QMediaPlayer.LoadedMedia and self._pending_play:
+            self._pending_play = False
             print("[PitchPlayer] Media loaded, setting position")
             self.player.setPosition(self.last_start_ms)
             QTimer.singleShot(150, self._check_audio_after_load)
 
     def _check_audio_after_load(self):
-        if self.was_playing_before_seek:
+        if self.was_playing_before_seek and not self.paused_externally:
             self.player.play()
         else:
             self.player.pause()
 
-        # Delay again to verify audio routing
         QTimer.singleShot(500, self._verify_audio_available)
 
     def _verify_audio_available(self):
-        if not self.player.isAvailable():
+        if not self.player.isAvailable() and not self.paused_externally:
             print("[PitchPlayer] No audio detected after load — retrying playback")
             self.player.setPosition(self.last_start_ms)
             self.player.play()
+        self.paused_externally = False
 
     def stop(self):
         self.player.stop()
@@ -458,7 +460,10 @@ class PlayerMixin:
         self.elapsed_label.setText(self.format_time(pos))
 
         if not self.is_playing:
+            self.pitch_player.paused_externally = True
             QTimer.singleShot(0, player.pause)
+        else:
+            self.pitch_player.paused_externally = False
     
     def _on_song_double_clicked(self, item):
         song = item.data(Qt.UserRole)
