@@ -29,6 +29,10 @@ from osuRadio.config import (
     get_lazer_reader_path, get_silent_subprocess_kwargs
 )
 
+# Logging
+from osuRadio.log import setup_logging
+setup_logging(BASE_PATH)
+
 __all__ = [
     # Audio
     "PitchAdjustedPlayer", "get_audio_duration", "PlayerMixin",
@@ -49,5 +53,8 @@ __all__ = [
     "BASE_PATH", "DATABASE_FILE", "SETTINGS_FILE", "CUSTOM_SONGS_PATH",
     "EXPORT_STATE_FILE", "ICON_PATH", "IMG_PATH", "get_yt_dlp_path", "IS_WINDOWS",
     "get_lazer_reader_path", "LazerScanner", "compute_file_hash", "run_lazer_reader", 
-    "convert_lazer_to_songs", "get_silent_subprocess_kwargs"
+    "convert_lazer_to_songs", "get_silent_subprocess_kwargs",
+
+    # Logging
+    "setup_logging"
 ]

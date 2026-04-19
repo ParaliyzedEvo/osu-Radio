@@ -186,6 +186,7 @@ custom_songs/
 test2/
 *.bat
 Osu!Radiotest.spec
+logs/
 
 # Node
 node_modules/
