@@ -110,6 +110,8 @@ class PitchAdjustedPlayer:
         self.was_playing_before_seek = False
         self._pending_play = False
         self.is_processing = False
+        self.on_playback_started = None
+        self._loading = False
 
         self.player.mediaStatusChanged.connect(self._start_after_load)
 
@@ -153,6 +155,9 @@ class PitchAdjustedPlayer:
             except Exception as e:
                 print(f"[Cleanup Error] Could not delete {self.last_temp}: {e}")
 
+        self._pending_play = False
+        self._loading = True
+
         if preserve_pitch:
             self.is_processing = True
             processed_file, _ = process_audio(input_path, speed=speed, adjust_pitch=True)
@@ -166,12 +171,11 @@ class PitchAdjustedPlayer:
             file_url = QUrl.fromLocalFile(str(input_path))
             original_duration = self._get_wav_duration_ms(str(input_path))
             self.last_duration = int(original_duration / speed)
+            self.player.setSource(QUrl())
             self.player.setSource(file_url)
             self.player.setPlaybackRate(speed)
-            self.player.setPosition(start_ms)
-            self.player.play()
             self.current_temp = None
-            self._pending_play = False
+            self._pending_play = True
 
         self.last_temp = self.current_temp
     
@@ -184,23 +188,36 @@ class PitchAdjustedPlayer:
 
     def _start_after_load(self, status):
         if status == QMediaPlayer.LoadedMedia and self._pending_play:
+            self._loading = False
             self._pending_play = False
             print("[PitchPlayer] Media loaded, setting position")
+            if not self.preserve_pitch:
+                qt_duration = self.player.duration()
+                if qt_duration > 0:
+                    self.last_duration = int(qt_duration / self.playback_rate)
+
             self.player.setPosition(self.last_start_ms)
             QTimer.singleShot(150, self._check_audio_after_load)
 
     def _check_audio_after_load(self):
         if self.was_playing_before_seek and not self.paused_externally:
             self.player.play()
+            if self.on_playback_started:
+                self.on_playback_started(self.last_start_ms)
         else:
             self.player.pause()
 
         QTimer.singleShot(500, self._verify_audio_available)
 
     def _verify_audio_available(self):
-        if not self.player.isAvailable() and not self.paused_externally:
-            print("[PitchPlayer] No audio detected after load — retrying playback")
-            self.player.setPosition(self.last_start_ms)
+        if self.paused_externally:
+            self.paused_externally = False
+            return
+        if (
+            self.was_playing_before_seek
+            and self.player.playbackState() != QMediaPlayer.PlayingState
+        ):
+            print("[PitchPlayer] Playback stalled — retrying")
             self.player.play()
         self.paused_externally = False
 
@@ -279,6 +296,46 @@ def process_audio(input_file, speed=1.0, adjust_pitch=False, cache_dir=None):
     return output_file, get_audio_duration(output_file)
 
 class PlayerMixin:
+    def _on_deferred_playback_start(self, start_ms):
+        self.pitch_player.on_playback_started = None  # consume it
+        if not self.playback_timer.isActive():
+            self.playback_timer.start()
+
+    def reapply_preserve_pitch(self):
+        if not self.queue or self.current_index >= len(self.queue):
+            return
+
+        song = self.queue[self.current_index]
+        path = self._get_path(song)
+        if not path or not path.exists():
+            return
+
+        current_pos_ms = self.slider.value()
+        was_playing = self.is_playing
+        speed = float(self.speed_combo.currentText().replace("x", ""))
+        self.playback_timer.stop()
+        self.pitch_player._last_path = None
+
+        self.pitch_player.play(
+            str(path),
+            speed=speed,
+            preserve_pitch=self.preserve_pitch,
+            start_ms=current_pos_ms,
+            force_play=was_playing,
+        )
+
+        self.current_duration = self.pitch_player.last_duration
+        self.slider.setRange(0, self.current_duration)
+        self.total_label.setText(self.format_time(self.current_duration))
+        self._playback_start_time = monotonic() - (current_pos_ms / 1000)
+
+        if was_playing:
+            self.pitch_player.on_playback_started = self._on_deferred_playback_start
+        else:
+            self.pitch_player.on_playback_started = None
+
+        self.update_play_pause_icon()
+
     def setup_media_players(self):
         output_device = QMediaDevices.defaultAudioOutput()
 
@@ -333,19 +390,28 @@ class PlayerMixin:
     def _tick_seekbar(self):
         player = self.pitch_player.player
 
-        if self._playback_start_time is None:
+        if getattr(self.pitch_player, '_loading', False):
+            return
+
+        if getattr(self.pitch_player, 'is_processing', False):
             return
 
         if player.playbackState() != QMediaPlayer.PlayingState:
             return
 
-        elapsed_ms = int((monotonic() - self._playback_start_time) * 1000)
+        if self.preserve_pitch:
+            elapsed_ms = player.position()
+        else:
+            raw_pos = player.position()
+            elapsed_ms = int(raw_pos / self.pitch_player.playback_rate)
+
         elapsed_ms = min(elapsed_ms, self.current_duration)
 
         if not getattr(self, "_user_dragging", False):
             self.slider.setValue(elapsed_ms)
             self.elapsed_label.setText(self.format_time(elapsed_ms))
-        if elapsed_ms >= self.current_duration:
+
+        if elapsed_ms >= self.current_duration - 200:
             self.playback_timer.stop()
             self.next_song()
 
@@ -370,13 +436,15 @@ class PlayerMixin:
             self.is_playing = False
         else:
             player.play()
-            self.playback_timer.start(1000)
+            if not self.playback_timer.isActive():
+                self.playback_timer.start()
             self.is_playing = True
 
         self.update_play_pause_icon()
-   
+
     def pause_song(self):
         self.pitch_player.player.pause()
+        self.playback_timer.stop()
         self.is_playing = False
         self.update_play_pause_icon()
 
@@ -396,7 +464,6 @@ class PlayerMixin:
 
         speed = float(self.speed_combo.currentText().replace("x", ""))
 
-        # Start playback
         self.pitch_player.play(
             str(path),
             speed=speed,
@@ -404,7 +471,6 @@ class PlayerMixin:
             force_play=True
         )
 
-        # Sync UI
         self.current_duration = self.pitch_player.last_duration
         self._playback_start_time = monotonic()
         self.slider.setRange(0, self.current_duration)
@@ -454,8 +520,13 @@ class PlayerMixin:
             return
 
         player = self.pitch_player.player
-        self._playback_start_time = monotonic() - (pos / 1000)
-        player.setPosition(pos)
+
+        if self.preserve_pitch:
+            raw_pos = pos
+        else:
+            raw_pos = int(pos * self.pitch_player.playback_rate)
+
+        player.setPosition(raw_pos)
         self.slider.setValue(pos)
         self.elapsed_label.setText(self.format_time(pos))
 

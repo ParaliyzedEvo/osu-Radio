@@ -603,32 +603,6 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
             self._path_cache[key] = get_audio_path(song)
         return self._path_cache[key]
         
-    def _tick_seekbar(self):
-        player = self.pitch_player.player
-
-        if getattr(self.pitch_player, 'is_processing', False):
-            return
-
-        if (
-            player.playbackState() == QMediaPlayer.PlayingState
-            and not player.isAvailable()
-        ):
-            self.seek(self.slider.value())
-            return
-        
-        if self._playback_start_time is None:
-            return
-        
-        elapsed_ms = int((monotonic() - self._playback_start_time) * 1000)
-        elapsed_ms = min(elapsed_ms, self.current_duration)
-        if not getattr(self, "_user_dragging", False):
-            self.slider.setValue(elapsed_ms)
-            self.elapsed_label.setText(self.format_time(elapsed_ms))
-
-        if elapsed_ms >= self.current_duration:
-            self.playback_timer.stop()
-            self.next_song()
-        
     def change_speed(self, text):
         try:
             rate = float(text.replace("x", "").strip())
@@ -643,30 +617,32 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
 
             song = self.queue[self.current_index]
             path = self._get_path(song)
-            current_pos = self.slider.value()
+            current_display_pos = self.slider.value()
             old_rate = self.pitch_player.playback_rate
-            original_pos_ms = int(current_pos * old_rate)
-            new_pos_ms = int(original_pos_ms / rate)
+            if self.preserve_pitch:
+                real_ms = current_display_pos
+            else:
+                real_ms = int(current_display_pos * old_rate)
+            new_display_pos = int(real_ms / rate) if self.preserve_pitch else real_ms
 
-            print(f"[Speed Change] Changing from {self.pitch_player.playback_rate}x to {rate}x")
+            print(f"[Speed Change] Changing from {old_rate}x to {rate}x")
             self.playback_timer.stop()
+            self.pitch_player.on_playback_started = None
 
             self.pitch_player.play(
                 str(path),
                 speed=rate,
                 preserve_pitch=self.preserve_pitch,
-                start_ms=new_pos_ms,
+                start_ms=real_ms if self.preserve_pitch else real_ms,
                 force_play=self.is_playing
             )
-            
+
             self.current_duration = self.pitch_player.last_duration
             self.slider.setRange(0, self.current_duration)
             self.total_label.setText(self.format_time(self.current_duration))
-            self._playback_start_time = monotonic() - (new_pos_ms / 1000)
-
-            if not self.playback_timer.isActive():
-                self.playback_timer.start()
-
+            if self.is_playing:
+                self.pitch_player.on_playback_started = self._on_deferred_playback_start
+            
             default_speeds = ["0.5x", "0.75x", "1x", "1.25x", "1.5x", "2x"]
             self.speed_combo.blockSignals(True)
             self.speed_combo.clear()

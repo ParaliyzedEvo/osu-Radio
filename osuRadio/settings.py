@@ -319,7 +319,10 @@ class SettingsMixin:
         if self.media_keys_enabled != media_keys:
             self.media_keys_enabled = media_keys
             update_media_key_listener(self)
+        old_preserve_pitch = self.preserve_pitch
         self.preserve_pitch = preserve_pitch
+        if old_preserve_pitch != preserve_pitch:
+            self.reapply_preserve_pitch()
         self.allow_prerelease = allow_prerelease
         if allow_resizing:
             self.resizable = True
