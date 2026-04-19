@@ -435,7 +435,7 @@ class PlayerMixin:
         self.elapsed_label.setText(self.format_time(pos))
 
         if not self.is_playing:
-            player.pause()
+            QTimer.singleShot(0, player.pause)
     
     def _on_song_double_clicked(self, item):
         song = item.data(Qt.UserRole)
