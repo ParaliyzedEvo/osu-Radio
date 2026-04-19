@@ -22,10 +22,29 @@ from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QMediaDevices, QAud
 from osuRadio.config import get_ffmpeg_bin_path, DATABASE_FILE, get_silent_subprocess_kwargs
 from osuRadio.db import get_audio_path
 
+def _run_ffmpeg_stream(stream_out):
+    cmd = ffmpeg.compile(stream_out.overwrite_output())
+    cmd[0] = ffmpeg_path
+    proc = _original_popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        **get_silent_subprocess_kwargs(),
+    )
+    for line in iter(proc.stdout.readline, ""):
+        line = line.rstrip()
+        if line:
+            print(f"[FFmpeg] {line}")
+    proc.wait()
+
 ffmpeg_path = str(get_ffmpeg_bin_path())
-print(platform.machine())
-print(f"[FFmpeg] Expected path: {ffmpeg_path}")
-print(f"[FFmpeg] Exists: {Path(ffmpeg_path).exists()}")
+def _log_ffmpeg_info():
+    print(platform.machine())
+    print(f"[FFmpeg] Expected path: {ffmpeg_path}")
+    print(f"[FFmpeg] Exists: {Path(ffmpeg_path).exists()}")
 _original_popen = subprocess.Popen
 
 # Patch ffmpeg-python’s internal Popen to suppress terminal (for stream.run())
@@ -237,7 +256,9 @@ def process_audio(input_file, speed=1.0, adjust_pitch=False, cache_dir=None):
     stream = ffmpeg.input(str(input_file))
 
     if speed == 1.0:
-        stream.output(str(output_file), format='wav', acodec="pcm_s16le", ac=2, ar=44100).run(overwrite_output=True, quiet=True)
+        _run_ffmpeg_stream(
+            stream.output(str(output_file), format='wav', acodec="pcm_s16le", ac=2, ar=44100)
+        )
     else:
         if adjust_pitch:
             remaining = speed
@@ -249,7 +270,9 @@ def process_audio(input_file, speed=1.0, adjust_pitch=False, cache_dir=None):
         else:
             stream = stream.filter('rubberband', tempo=speed)
 
-        stream.output(str(output_file), acodec="pcm_s16le", ac=2, ar=44100).run(overwrite_output=True, quiet=True)
+        _run_ffmpeg_stream(
+            stream.output(str(output_file), acodec="pcm_s16le", ac=2, ar=44100)
+        )
 
     return output_file, get_audio_duration(output_file)
 

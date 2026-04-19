@@ -7,7 +7,8 @@ import tempfile
 from pathlib import Path
 from time import monotonic
 from PySide6.QtCore import (
-    Qt, QUrl, QTimer, Signal, QSize
+    Qt, QUrl, QTimer, Signal, QSize, qInstallMessageHandler, 
+    QtMsgType
 )
 from PySide6.QtGui import (
     QIcon, QKeySequence, QShortcut, QGuiApplication
@@ -23,6 +24,8 @@ from PySide6.QtMultimedia import QMediaPlayer, QVideoSink
 
 from osuRadio import *
 from osuRadio import __version__
+setup_logging(BASE_PATH)
+_log_ffmpeg_info()
 
 class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMixin, LibraryMixin, ContextMenuMixin, UpdateMixin):
     def __init__(self):  
@@ -746,6 +749,18 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
                 print("[Exit Cleanup] Cache folder deleted.")
             except Exception as e:
                 print(f"[Exit Cleanup] Cache delete failed: {e}")
+
+def _qt_log(mode, context, message):
+    tag = {
+        QtMsgType.QtDebugMsg:    "[Qt Debug]",
+        QtMsgType.QtInfoMsg:     "[Qt Info]",
+        QtMsgType.QtWarningMsg:  "[Qt Warning]",
+        QtMsgType.QtCriticalMsg: "[Qt Critical]",
+        QtMsgType.QtFatalMsg:    "[Qt Fatal]",
+    }.get(mode, "[Qt]")
+    print(f"{tag} {message}")
+
+qInstallMessageHandler(_qt_log)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

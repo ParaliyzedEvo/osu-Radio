@@ -2,7 +2,7 @@ __version__ = "2.0.6b1"
 __author__ = "Paraliyzed_evo"
 
 # Audio
-from osuRadio.audio import PitchAdjustedPlayer, get_audio_duration, PlayerMixin
+from osuRadio.audio import PitchAdjustedPlayer, get_audio_duration, PlayerMixin, _log_ffmpeg_info
 
 # Database
 from osuRadio.db import load_cache, save_cache, get_audio_path, remove_missing_songs, validate_cache, update_folder_mtime
@@ -31,11 +31,10 @@ from osuRadio.config import (
 
 # Logging
 from osuRadio.log import setup_logging
-setup_logging(BASE_PATH)
 
 __all__ = [
     # Audio
-    "PitchAdjustedPlayer", "get_audio_duration", "PlayerMixin",
+    "PitchAdjustedPlayer", "get_audio_duration", "PlayerMixin", "_log_ffmpeg_info",
 
     # Database
     "load_cache", "save_cache", "get_audio_path", "remove_missing_songs", "validate_cache", "update_folder_mtime",
