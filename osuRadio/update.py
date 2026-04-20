@@ -8,6 +8,7 @@ import tempfile
 import shutil
 import subprocess
 import tempfile
+import time
 from dateutil import parser as date_parser
 from packaging import version
 from PySide6.QtCore import (
@@ -64,7 +65,7 @@ def check_for_update(current_version, skipped_versions=None, manual_check=False,
         print(f"[check_for_update] Failed: {e}")
     return None, None
 
-def download_and_install_update(assets, latest_version, skipped_versions, settings_path, main_window=None):
+def download_and_install_update(assets, latest_version, skipped_versions, settings_path, main_window=None, manual_check=False):
     platform = sys.platform
     url = None
 
@@ -80,7 +81,16 @@ def download_and_install_update(assets, latest_version, skipped_versions, settin
             break
 
     if not url:
-        QMessageBox.information(None, "Update", "No suitable update found.")
+        if manual_check:
+            QMessageBox.information(None, "Update", "No suitable update found for your platform.")
+        else:
+            # Assets likely not uploaded yet (CI still running) — reset cooldown so we retry in 20 min
+            print("[update] No suitable asset found — assets may still be uploading. Will retry in 20 min.")
+            try:
+                cooldown_file = BASE_PATH / ".update_check"
+                cooldown_file.write_text(str(time.time()))
+            except Exception as e:
+                print(f"[update] Failed to write cooldown file: {e}")
         return
 
     msg = QMessageBox()
@@ -239,7 +249,7 @@ class UpdateMixin:
                     include_prerelease=False
                 )
                 if latest_version:
-                    download_and_install_update(assets, latest_version, self.skipped_versions, str(SETTINGS_FILE), self)
+                    download_and_install_update(assets, latest_version, self.skipped_versions, str(SETTINGS_FILE), self, manual_check=manual)
                 else:
                     QMessageBox.information(self, "No Stable Update Found", "You're already on the most recent release.")
             else:
@@ -255,7 +265,7 @@ class UpdateMixin:
         )
 
         if latest_version:
-            download_and_install_update(assets, latest_version, self.skipped_versions, str(SETTINGS_FILE), self)
+            download_and_install_update(assets, latest_version, self.skipped_versions, str(SETTINGS_FILE), self, manual_check=manual)
         elif manual:
             QMessageBox.information(self, "osu!Radio", "You're already on the latest version.")
 
