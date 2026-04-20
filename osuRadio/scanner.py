@@ -4,6 +4,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, Signal, QThread, QTimer
 from PySide6.QtWidgets import QApplication, QLabel, QMessageBox, QProgressDialog
 from osuRadio.config import BASE_PATH, CUSTOM_SONGS_PATH, DATABASE_FILE
+from osuRadio.audio import get_audio_duration
 from osuRadio.lazer import LazerScanner, compute_file_hash
 from osuRadio.msg import show_modal
 from osuRadio.parser import OsuParser
@@ -375,6 +376,7 @@ class LibraryMixin:
 
     def _finalize_library(self, stable_library, osu_count, missing_count):
         CUSTOM_SONGS_PATH = BASE_PATH / "custom_songs"
+        custom_songs = []
         custom_count = 0
         if CUSTOM_SONGS_PATH.exists() and any(CUSTOM_SONGS_PATH.iterdir()):
             self._on_progress_update("📥 Scanning custom songs folder...")
@@ -382,13 +384,33 @@ class LibraryMixin:
             custom_cache = load_cache(CUSTOM_SONGS_PATH)
             if not custom_cache:
                 print("[finalize] Importing custom audio files...")
-                self.import_custom_audio(CUSTOM_SONGS_PATH)
-                custom_cache = load_cache(CUSTOM_SONGS_PATH)
-            stable_library = stable_library + (custom_cache or [])
-            custom_count = len(custom_cache or [])
+                supported_exts = {".mp3", ".wav", ".ogg", ".flac", ".m4a", ".opus"}
+                maps = []
+                for file in CUSTOM_SONGS_PATH.glob("*"):
+                    if file.suffix.lower() in supported_exts:
+                        try:
+                            duration = get_audio_duration(file) or 0
+                            maps.append({
+                                "title": file.stem,
+                                "artist": "Custom",
+                                "mapper": "User",
+                                "audio": file.name,
+                                "background": "",
+                                "length": int(duration * 1000),
+                                "osu_file": "",
+                                "folder": str(CUSTOM_SONGS_PATH)
+                            })
+                        except Exception as e:
+                            print(f"[finalize] Failed to import {file}: {e}")
+                if maps:
+                    save_cache(str(CUSTOM_SONGS_PATH), maps)
+                custom_cache = maps
+            custom_songs = custom_cache or []
+            custom_count = len(custom_songs)
+
+        combined_library = stable_library + custom_songs
 
         # Merge lazer on top
-        combined_library = stable_library
         lazer_songs = [s for s in self.library if s.get("source") == "lazer"]
         if lazer_songs:
             lazer_keys = {
@@ -396,7 +418,7 @@ class LibraryMixin:
                 for s in lazer_songs
             }
             combined_library = [
-                s for s in stable_library
+                s for s in combined_library
                 if (s.get("title", "").strip().lower(), s.get("artist", "").strip().lower()) not in lazer_keys
             ] + lazer_songs
 
@@ -404,7 +426,7 @@ class LibraryMixin:
         self.queue = list(combined_library)
         self.populate_list(self.queue)
         self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
-        print(f"[finalize] ✅ Total: {len(combined_library)} songs in library.")
+        print(f"[finalize] ✅ Total: {len(combined_library)} songs ({osu_count} stable, {custom_count} custom, {len(lazer_songs) if lazer_songs else 0} lazer)")
 
         if hasattr(self, "progress") and self.progress:
             self.progress.closeEvent = lambda ev: ev.accept()
