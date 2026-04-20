@@ -267,7 +267,10 @@ class LibraryMixin:
                         
                 elif clicked == rescan_btn:
                     print("[reload_songs] User requested full rescan")
-                else:
+                elif clicked == cancel_btn:
+                    self.queue = list(self.library)
+                    self.populate_list(self.queue)
+                    self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
                     return
             else:
                 print("[reload_songs] Cache is valid, loading from cache")
@@ -289,8 +292,11 @@ class LibraryMixin:
                     if msg.result() == QMessageBox.Yes:
                         print("[reload_songs] User requested force rescan despite valid cache")
                     else:
-                        self.library = combined_cache
-                        self.queue = list(combined_cache)
+                        if not self.library:
+                            self.library = combined_cache
+                            self.queue = list(combined_cache)
+                        else:
+                            self.queue = list(self.library)
                         self.populate_list(self.queue)
                         self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
                         return
