@@ -610,20 +610,15 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
                 raise ValueError("Speed must be positive.")
             if abs(rate - self.pitch_player.playback_rate) < 0.01:
                 return
-
             self.playback_rate = rate
             if not self.queue or self.current_index >= len(self.queue):
                 return
-
             song = self.queue[self.current_index]
             path = self._get_path(song)
             current_display_pos = self.slider.value()
             old_rate = self.pitch_player.playback_rate
-            if self.preserve_pitch:
-                new_pos_ms = current_display_pos
-            else:
-                original_ms = int(current_display_pos * old_rate)
-                new_pos_ms = int(original_ms / rate)
+            real_ms = int(current_display_pos * old_rate)
+            new_pos_ms = int(real_ms / rate)
 
             print(f"[Speed Change] Changing from {old_rate}x to {rate}x at pos {current_display_pos}ms → {new_pos_ms}ms")
             self.playback_timer.stop()
@@ -639,11 +634,14 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
 
             self.current_duration = self.pitch_player.last_duration
             self.slider.setRange(0, self.current_duration)
+            self.slider.setValue(new_pos_ms)
             self.total_label.setText(self.format_time(self.current_duration))
-            self._playback_start_time = monotonic() - (new_pos_ms / 1000)
+
             if self.is_playing:
-                self.playback_timer.start()
-            
+                self.pitch_player.on_playback_started = self._on_deferred_playback_start
+            else:
+                self._playback_start_time = monotonic() - (new_pos_ms / 1000)
+
             default_speeds = ["0.5x", "0.75x", "1x", "1.25x", "1.5x", "2x"]
             self.speed_combo.blockSignals(True)
             self.speed_combo.clear()

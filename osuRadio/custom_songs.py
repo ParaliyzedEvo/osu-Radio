@@ -273,7 +273,7 @@ class CustomSongsMixin:
         dialog.setFixedSize(400, 220)
         layout = QVBoxLayout()
 
-        url_label = QLabel("YouTube URL:")
+        url_label = QLabel("YouTube URL/Playlist:")
         layout.addWidget(url_label)
 
         url_input = QLineEdit()
