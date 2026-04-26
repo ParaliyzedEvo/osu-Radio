@@ -208,13 +208,17 @@ class CustomSongsMixin:
                 self.url = url
                 self.audio_format = audio_format
                 self.CUSTOM_SONGS_PATH = CUSTOM_SONGS_PATH
+                self._cancelled = False
+                self._process = None
+                self._downloaded_files = []
+
+            def cancel(self):
+                self._cancelled = True
+                if self._process and self._process.poll() is None:
+                    self._process.terminate()
 
             def run(self):
                 try:
-                    print(f"[YouTube Download] Starting download: {self.url}")
-                    print(f"[YouTube Download] Format: {self.audio_format}")
-                    print(f"[YouTube Download] Output folder: {self.CUSTOM_SONGS_PATH}")
-
                     ytdlp_path = str(get_yt_dlp_path())
                     output_template = str(self.CUSTOM_SONGS_PATH / "%(title)s.%(ext)s")
                     cmd = [
@@ -229,7 +233,7 @@ class CustomSongsMixin:
 
                     print(f"[YouTube Download] Command: {' '.join(cmd)}")
 
-                    process = subprocess.Popen(
+                    self._process = subprocess.Popen(
                         cmd,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.STDOUT,
@@ -240,13 +244,24 @@ class CustomSongsMixin:
                     )
 
                     while True:
-                        line = process.stdout.readline()
-                        if not line and process.poll() is not None:
+                        if self._cancelled:
+                            self._process.terminate()
+                            break
+
+                        line = self._process.stdout.readline()
+                        if not line and self._process.poll() is not None:
                             break
 
                         if line:
                             line = line.strip()
                             print(f"[yt-dlp] {line}")
+
+                            if '[ExtractAudio] Destination:' in line:
+                                filepath = line.split('[ExtractAudio] Destination:', 1)[1].strip()
+                                self._downloaded_files.append(Path(filepath))
+                            elif '[download] Destination:' in line:
+                                filepath = line.split('[download] Destination:', 1)[1].strip()
+                                self._downloaded_files.append(Path(filepath))
 
                             if '[download]' in line and '%' in line:
                                 match = re.search(r'\[download\]\s+(\d+(?:\.\d+)?)%', line)
@@ -258,7 +273,18 @@ class CustomSongsMixin:
                             elif '[ffmpeg]' in line or 'post-process' in line.lower():
                                 self.status_updated.emit("Processing audio...")
 
-                    return_code = process.wait()
+                    if self._cancelled:
+                        for f in self._downloaded_files:
+                            try:
+                                if f.exists():
+                                    f.unlink()
+                                    print(f"[YouTube Download] Deleted cancelled file: {f}")
+                            except Exception as e:
+                                print(f"[YouTube Download] Failed to delete {f}: {e}")
+                        self.download_finished.emit(False, "cancelled")
+                        return
+
+                    return_code = self._process.wait()
                     if return_code == 0:
                         self.download_finished.emit(True, "")
                     else:
@@ -287,10 +313,8 @@ class CustomSongsMixin:
         wav_radio = QRadioButton("WAV (High quality)")
         mp3_radio = QRadioButton("MP3 (Good quality)")
         mp3_radio.setChecked(True)
-
         format_group.addButton(wav_radio)
         format_group.addButton(mp3_radio)
-
         layout.addWidget(wav_radio)
         layout.addWidget(mp3_radio)
 
@@ -305,13 +329,29 @@ class CustomSongsMixin:
         layout.addWidget(button_box)
 
         dialog.setLayout(layout)
-        worker = None
+        worker_ref = [None]
 
         def download_song():
-            nonlocal worker
             url = url_input.text().strip()
             if not url:
                 QMessageBox.warning(dialog, "Invalid URL", "Please enter a YouTube URL.")
+                return
+
+            # Block YouTube-generated infinite playlists (Mix, Radio, Auto-generated)
+            yt_auto_patterns = [
+                r'[?&]list=RD',        # YouTube Mix/Radio
+                r'[?&]list=RDMM',      # My Mix
+                r'[?&]list=LL',        # Liked videos
+                r'[?&]list=WL',        # Watch Later
+                r'youtube\.com/watch\?.*[?&]list=RD',
+            ]
+            if any(re.search(p, url) for p in yt_auto_patterns):
+                QMessageBox.warning(
+                    dialog,
+                    "Unsupported Playlist",
+                    "YouTube Mix and Radio playlists are not supported as they are unlimited.\n\n"
+                    "Please use a regular video URL or a user-created playlist."
+                )
                 return
 
             audio_format = "wav" if wav_radio.isChecked() else "mp3"
@@ -325,38 +365,50 @@ class CustomSongsMixin:
             wav_radio.setEnabled(False)
             mp3_radio.setEnabled(False)
 
-            worker = DownloadWorker(url, audio_format, CUSTOM_SONGS_PATH)
+            worker_ref[0] = DownloadWorker(url, audio_format, CUSTOM_SONGS_PATH)
+            worker_ref[0].progress_updated.connect(on_progress)
+            worker_ref[0].status_updated.connect(on_status)
+            worker_ref[0].download_finished.connect(on_finished)
+            worker_ref[0].start()
 
-            def on_progress(percent): progress_bar.setValue(percent)
-            def on_status(status):
-                status_label.setText(status)
-                if "Processing" in status:
-                    progress_bar.setRange(0, 0)
+        def on_progress(percent):
+            progress_bar.setValue(percent)
 
-            def on_finished(success, error_msg):
-                if success:
-                    status_label.setText("Download completed successfully!")
-                    progress_bar.setVisible(False)
-                    button_box.button(QDialogButtonBox.StandardButton.Ok).setEnabled(True)
-                    url_input.setEnabled(True)
-                    wav_radio.setEnabled(True)
-                    mp3_radio.setEnabled(True)
-                    dialog.accept()
+        def on_status(status):
+            status_label.setText(status)
+            if "Processing" in status:
+                progress_bar.setRange(0, 0)
 
-                    def show_import(): self.import_after_download(CUSTOM_SONGS_PATH)
-                    QTimer.singleShot(100, show_import)
-                else:
-                    status_label.setText("Download failed!")
-                    QMessageBox.critical(dialog, "Download Failed", f"Error: {error_msg}")
-                    self.reset_download_dialog(button_box, url_input, wav_radio, mp3_radio, progress_bar, status_label)
+        def on_finished(success, error_msg):
+            if error_msg == "cancelled":
+                status_label.setText("Download cancelled.")
+                progress_bar.setVisible(False)
+                self.reset_download_dialog(button_box, url_input, wav_radio, mp3_radio, progress_bar, status_label)
+                return
 
-            worker.progress_updated.connect(on_progress)
-            worker.status_updated.connect(on_status)
-            worker.download_finished.connect(on_finished)
-            worker.start()
+            if success:
+                status_label.setText("Download completed successfully!")
+                progress_bar.setVisible(False)
+                dialog.accept()
+                def show_import(): self.import_after_download(CUSTOM_SONGS_PATH)
+                QTimer.singleShot(100, show_import)
+            else:
+                status_label.setText("Download failed!")
+                QMessageBox.critical(dialog, "Download Failed", f"Error: {error_msg}")
+                self.reset_download_dialog(button_box, url_input, wav_radio, mp3_radio, progress_bar, status_label)
+
+        def on_cancel():
+            w = worker_ref[0]
+            if w and w.isRunning():
+                status_label.setText("Cancelling...")
+                button_box.button(QDialogButtonBox.StandardButton.Cancel).setEnabled(False)
+                w.cancel()
+            else:
+                dialog.reject()
 
         button_box.accepted.connect(download_song)
-        button_box.rejected.connect(dialog.reject)
+        button_box.rejected.connect(on_cancel)
+
         dialog.exec()
 
     def reset_download_dialog(self, button_box, url_input, wav_radio, mp3_radio, progress_bar, status_label):
