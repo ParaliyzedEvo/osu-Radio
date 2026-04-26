@@ -591,26 +591,24 @@ class CustomSongsMixin:
         QApplication.processEvents()
 
         # Create worker thread for export
-        worker = ExportWorker(selected_songs, path, selected_format)
-        
+        self._export_worker = ExportWorker(selected_songs, path, selected_format)
+        worker = self._export_worker
+
         def on_progress(count, filename):
             progress_bar.setValue(count)
             current_file_label.setText(f"Adding: {filename}")
-            QApplication.processEvents()
-        
+
         def on_finished(success, message):
             progress_dialog.close()
+            self._export_worker = None
             if success:
-                QMessageBox.information(self, "Export Complete", 
+                QMessageBox.information(self, "Export Complete",
                     f"{message}\nSaved to:\n{path}")
+                if IS_WINDOWS:
+                    os.startfile(os.path.dirname(path))
             else:
                 QMessageBox.critical(self, "Export Failed", message)
-        
-        worker.progress_updated.connect(on_progress)
-        worker.export_finished.connect(on_finished)
-        worker.start()
-        
-        # Keep dialog open until worker finishes
+
         worker.progress_updated.connect(on_progress)
         worker.export_finished.connect(on_finished)
         worker.start()
