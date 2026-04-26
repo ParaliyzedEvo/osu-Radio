@@ -611,6 +611,6 @@ class CustomSongsMixin:
         worker.start()
         
         # Keep dialog open until worker finishes
-        while worker.isRunning():
-            QApplication.processEvents()
-            worker.wait(50)
+        worker.progress_updated.connect(on_progress)
+        worker.export_finished.connect(on_finished)
+        worker.start()
