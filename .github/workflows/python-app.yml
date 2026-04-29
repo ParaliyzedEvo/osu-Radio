@@ -303,7 +303,7 @@ jobs:
           pkgbuild \
             --root dist-universal/osu!Radio.app \
             --identifier com.paraliyzedevo.osuradio \
-            --version 1.9.2 \
+            --version 2.1.6 \
             --install-location /Applications \
             osu!Radio.pkg
 
