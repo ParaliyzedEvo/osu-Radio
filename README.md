@@ -27,10 +27,10 @@ Code Used for Creating the Background: [https://osu.ppy.sh/community/forums/topi
 
 ## Star History
 
-<a href="https://www.star-history.com/#ParaliyzedEvo/osu-Radio&Date">
+<a href="https://www.star-history.com/?repos=ParaliyzedEvo%2Fosu-Radio&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=ParaliyzedEvo/osu-Radio&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=ParaliyzedEvo/osu-Radio&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=ParaliyzedEvo/osu-Radio&type=Date" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=ParaliyzedEvo/osu-Radio&type=date&theme=dark&legend=top-left&sealed_token=sDPA-CzQTJs-L1qL2Zl6P_JpvAb75Yi_J-3nUWUJdXE47rSwS7hTH3Spq90jsnElNCp4_vawpjhrZaS4-ZPeTrTf2QDvSBTHec2TCpyV9jAgKpRn78Q_CA" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=ParaliyzedEvo/osu-Radio&type=date&legend=top-left&sealed_token=sDPA-CzQTJs-L1qL2Zl6P_JpvAb75Yi_J-3nUWUJdXE47rSwS7hTH3Spq90jsnElNCp4_vawpjhrZaS4-ZPeTrTf2QDvSBTHec2TCpyV9jAgKpRn78Q_CA" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=ParaliyzedEvo/osu-Radio&type=date&legend=top-left&sealed_token=sDPA-CzQTJs-L1qL2Zl6P_JpvAb75Yi_J-3nUWUJdXE47rSwS7hTH3Spq90jsnElNCp4_vawpjhrZaS4-ZPeTrTf2QDvSBTHec2TCpyV9jAgKpRn78Q_CA" />
  </picture>
 </a>
