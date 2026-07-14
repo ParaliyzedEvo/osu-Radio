@@ -6,6 +6,7 @@ on:
   # Fires when a tracked issue closes, reopens, or gets retitled
   issues:
     types: [closed, reopened, edited]
+  workflow_dispatch:
 
 permissions:
   issues: write
