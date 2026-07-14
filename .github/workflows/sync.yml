@@ -1,0 +1,64 @@
+name: Sync Wiki Checklist and Issues
+
+on:
+  # Fires the instant the wiki is created/edited
+  gollum:
+  # Fires when a tracked issue closes, reopens, or gets retitled
+  issues:
+    types: [closed, reopened, edited]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main repo (for the sync script)
+        uses: actions/checkout@v4
+
+      - name: Checkout wiki
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}.wiki
+          path: wiki
+          token: ${{ secrets.WIKI_PAT }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        if: github.event_name == 'gollum'
+        run: pip install requests
+
+      - name: Run wiki -> issues sync
+        if: github.event_name == 'gollum'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          ASSIGNEE: ParaliyzedEvo
+        run: python .github/scripts/sync.py --mode wiki-to-issues
+
+      - name: Run issue -> wiki sync
+        if: github.event_name == 'issues'
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_STATE: ${{ github.event.issue.state }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+        run: python .github/scripts/sync.py --mode issue-to-wiki
+
+      - name: Commit wiki changes
+        working-directory: wiki
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if [ -n "$(git status --porcelain)" ]; then
+            git add Home.md
+            git commit -m "Sync wiki checklist with GitHub issues"
+            git push
+          else
+            echo "No changes to commit"
+          fi
