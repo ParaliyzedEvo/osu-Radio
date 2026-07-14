@@ -57,12 +57,21 @@ ICON_PATH = resource_path(ICON_FILE)
 IMG_PATH  = resource_path("img")
 
 # External Binaries
+def _get_macos_arch():
+    machine = platform.machine().lower()
+    if machine in ("arm64", "aarch64"):
+        return "arm"
+    elif machine in ("x86_64", "amd64"):
+        return "intel"
+    else:
+        raise RuntimeError(f"Unsupported macOS architecture: {machine}")
+
 def get_ffmpeg_bin_path():
     system = platform.system().lower()
     if system == "windows":
         return resource_path("ffmpeg_bin", "windows", "bin", "ffmpeg.exe")
     elif system == "darwin":
-        return resource_path("ffmpeg_bin", "macos", "ffmpeg")
+        return resource_path("ffmpeg_bin", "macos", _get_macos_arch(), "ffmpeg")
     elif system == "linux":
         return resource_path("ffmpeg_bin", "linux", "bin", "ffmpeg")
     else:
@@ -73,7 +82,7 @@ def get_yt_dlp_path():
     if system == "windows":
         return resource_path("ffmpeg_bin", "windows", "bin", "yt-dlp.exe")
     elif system == "darwin":
-        return resource_path("ffmpeg_bin", "macos", "yt-dlp")
+        return resource_path("ffmpeg_bin", "macos", _get_macos_arch(), "yt-dlp")
     elif system == "linux":
         return resource_path("ffmpeg_bin", "linux", "bin", "yt-dlp")
     else:
