@@ -1,4 +1,4 @@
-__version__ = "2.0.6"
+__version__ = "2.1.6"
 __author__ = "Paraliyzed_evo"
 
 # Audio
