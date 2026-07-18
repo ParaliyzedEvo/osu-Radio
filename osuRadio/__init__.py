@@ -7,7 +7,7 @@ from osuRadio.audio import PitchAdjustedPlayer, get_audio_duration, PlayerMixin,
 
 # Database
 from osuRadio.db import load_cache, save_cache, get_audio_path, remove_missing_songs, validate_cache, update_folder_mtime
-from osuRadio.lazer import compute_file_hash, run_lazer_reader, convert_lazer_to_songs, LazerScanner
+from osuRadio.lazer import compute_file_hash, run_lazer_reader, LazerScanner
 
 # Settings & UI
 from osuRadio.settings import SettingsDialog, SettingsMixin
@@ -53,7 +53,7 @@ __all__ = [
     "BASE_PATH", "DATABASE_FILE", "SETTINGS_FILE", "CUSTOM_SONGS_PATH",
     "EXPORT_STATE_FILE", "ICON_PATH", "IMG_PATH", "get_yt_dlp_path", "IS_WINDOWS",
     "get_lazer_reader_path", "LazerScanner", "compute_file_hash", "run_lazer_reader", 
-    "convert_lazer_to_songs", "get_silent_subprocess_kwargs",
+    "get_silent_subprocess_kwargs",
 
     # Logging
     "setup_logging"

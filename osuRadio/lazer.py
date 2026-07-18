@@ -71,50 +71,6 @@ def run_lazer_reader(lazer_dir: str, progress_cb=None) -> list:
         print(f"[LazerReader] Failed to parse output JSON: {e}")
         return []
 
-
-def convert_lazer_to_songs(raw: list) -> list:
-    seen = {}
-    for entry in raw:
-        if not entry.get("fileExists"):
-            continue
-        key = (
-            entry.get("title", "").strip(),
-            entry.get("artist", "").strip(),
-            entry.get("mapper", "").strip(),
-            entry.get("audioHash", ""),
-        )
-        if key not in seen:
-            seen[key] = entry
-
-    # disambiguate titles that share (title, artist, mapper) but differ in audio
-    groups = defaultdict(list)
-    for (title, artist, mapper, _hash), entry in seen.items():
-        groups[(title, artist, mapper)].append(entry)
-
-    songs = []
-    for group in groups.values():
-        multi = len(group) > 1
-        for entry in group:
-            title = entry.get("title", "Unknown")
-            if multi and entry.get("difficulty"):
-                title = f"{title} [{entry['difficulty']}]"
-            songs.append({
-                "title":            title,
-                "artist":           entry.get("artist",         "Unknown"),
-                "mapper":           entry.get("mapper",         "Unknown"),
-                "audio":            entry.get("audioFilename",  "audio.mp3"),
-                "audio_path":       entry.get("audioPath",      ""),
-                "audio_hash":       entry.get("audioHash",      ""),
-                "background":       entry.get("backgroundPath") or "",
-                "background_hash":  entry.get("backgroundHash") or "",
-                "length":           0,
-                "osu_file":         "",
-                "folder":           entry.get("audioPath",      ""),
-                "source":           "lazer",
-            })
-    return songs
-
-
 class LazerScanner(QThread):
     done = Signal(list)
     progress_update = Signal(str)
