@@ -330,3 +330,45 @@ def get_lazer_audio_path(song: dict) -> Path:
             return hash_file
 
     return cached
+
+def get_lazer_realm_mtime(lazer_folder) -> Optional[str]:
+    if not lazer_folder:
+        return None
+    realm_path = Path(lazer_folder) / "client.realm"
+    if not realm_path.exists():
+        return None
+    return str(os.path.getmtime(realm_path))
+
+def validate_lazer_cache(lazer_folder) -> Tuple[bool, int]:
+    if not lazer_folder or not os.path.isdir(str(lazer_folder)):
+        return True, 0
+    if not DATABASE_FILE.exists():
+        return False, 0
+
+    current_mtime = get_lazer_realm_mtime(lazer_folder)
+    if current_mtime is None:
+        return True, 0
+
+    with sqlite3.connect(DATABASE_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT value FROM metadata WHERE key = ?",
+            (f'lazer_realm_mtime_{lazer_folder}',)
+        )
+        stored = cursor.fetchone()
+        cursor.execute("SELECT COUNT(*) FROM songs WHERE source = 'lazer'")
+        count = cursor.fetchone()[0]
+
+    return (stored is not None and stored[0] == current_mtime), count
+
+def update_lazer_realm_mtime(lazer_folder):
+    mtime = get_lazer_realm_mtime(lazer_folder)
+    if mtime is None:
+        return
+    with sqlite3.connect(DATABASE_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
+            (f'lazer_realm_mtime_{lazer_folder}', mtime)
+        )
+        conn.commit()

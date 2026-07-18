@@ -10,8 +10,8 @@ from osuRadio.lazer import LazerScanner, compute_file_hash
 from osuRadio.msg import show_modal
 from osuRadio.parser import OsuParser
 from osuRadio.db import (
-    load_cache, save_cache, validate_cache,
-    remove_missing_songs, get_audio_path
+    load_cache, save_cache, validate_cache, validate_lazer_cache,
+    update_lazer_realm_mtime, remove_missing_songs, get_audio_path
 )
 
 class LibraryScanner(QThread):
@@ -228,6 +228,7 @@ class LibraryMixin:
         QApplication.processEvents()
 
     def reload_songs(self, force_rescan=False):
+        lazer_fresh, _ = validate_lazer_cache(self.lazer_folder)
         self._stable_reload_result = None
         self._lazer_scan_pending = bool(
             getattr(self, "lazer_folder", None) and os.path.isdir(self.lazer_folder or "")
@@ -264,9 +265,9 @@ class LibraryMixin:
                     removed = remove_missing_songs(missing_songs)
                     osu_cache = load_cache(self.osu_folder)
                     custom_cache = load_cache(BASE_PATH / "custom_songs")
-                    combined_cache = (osu_cache or []) + (custom_cache or [])
+                    combined_cache = self._load_combined_cache()
                     
-                    if combined_cache:
+                    if combined_cache and lazer_fresh:
                         self.library = combined_cache
                         self.queue = list(combined_cache)
                         self.populate_list(self.queue)
@@ -288,12 +289,10 @@ class LibraryMixin:
                     self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
                     return
             else:
-                print("[reload_songs] Cache is valid, loading from cache")
-                osu_cache = load_cache(self.osu_folder)
-                custom_cache = load_cache(BASE_PATH / "custom_songs")
-                combined_cache = (osu_cache or []) + (custom_cache or [])
-                
-                if combined_cache:
+                combined_cache = self._load_combined_cache()
+
+                if combined_cache and lazer_fresh:
+                    print("[reload_songs] Cache is valid, loading from cache")
                     msg = QMessageBox(self)
                     msg.setIcon(QMessageBox.Question)
                     msg.setWindowTitle("Cache is Up to Date")
@@ -303,18 +302,33 @@ class LibraryMixin:
                     )
                     msg.setStandardButtons(QMessageBox.Yes | QMessageBox.Cancel)
                     show_modal(msg)
-                    
+
                     if msg.result() == QMessageBox.Yes:
                         print("[reload_songs] User requested force rescan despite valid cache")
-                    else:
-                        if not self.library:
-                            self.library = combined_cache
-                            self.queue = list(combined_cache)
-                        else:
-                            self.queue = list(self.library)
+                    else:   
+                        self.library = combined_cache if not self.library else list(self.library)
+                        self.queue = list(self.library) if self.library else list(combined_cache)
                         self.populate_list(self.queue)
                         self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
                         return
+
+                elif combined_cache and not lazer_fresh:
+                    # Stable is fine, only lazer changed — rescan lazer only, skip
+                    # LibraryScanner and skip deleting songs.db entirely.
+                    print("[reload_songs] Lazer cache stale, running lazer-only rescan")
+                    self.library = combined_cache
+                    self._progress_user_closed = False
+                    self._make_progress_dialog("Scanning osu!Lazer for new maps…")
+
+                    if hasattr(self, "_lazer_scanner") and self._lazer_scanner.isRunning():
+                        self._lazer_scanner.requestInterruption()
+                        self._lazer_scanner.wait(3000)
+
+                    self._lazer_scanner = LazerScanner(self.lazer_folder)
+                    self._lazer_scanner.progress_update.connect(self._on_progress_update)
+                    self._lazer_scanner.done.connect(self._on_lazer_only_rescan_complete)
+                    self._lazer_scanner.start()
+                    return
         
         print(f"[reload_songs] {'Force rescanning' if force_rescan else 'Cache invalid, rescanning'} folder: {self.osu_folder}")
         
@@ -388,8 +402,45 @@ class LibraryMixin:
         else:
             self._finalize_library(library, len(library), missing_count)
 
+    def _on_lazer_only_rescan_complete(self, lazer_songs):
+        existing_hashes = {s.get("audio_hash") for s in self.library if s.get("audio_hash")}
+        existing_keys = {
+            (s.get("title", "").strip().lower(), s.get("artist", "").strip().lower())
+            for s in self.library
+        }
+
+        added = replaced = 0
+        for song in lazer_songs:
+            h = song.get("audio_hash")
+            key = (song.get("title", "").strip().lower(), song.get("artist", "").strip().lower())
+            if h and h in existing_hashes:
+                self.library = [s for s in self.library if s.get("audio_hash") != h]
+                self.library.append(song); replaced += 1
+            elif key in existing_keys:
+                self.library = [s for s in self.library if
+                    (s.get("title","").strip().lower(), s.get("artist","").strip().lower()) != key]
+                self.library.append(song); replaced += 1
+            else:
+                self.library.append(song); existing_keys.add(key); added += 1
+
+        self.queue = list(self.library)
+        self.populate_list(self.queue)
+        self.queue_lbl.setText(f"Queue: {len(self.queue)} songs")
+
+        if hasattr(self, "progress") and self.progress:
+            self.progress.closeEvent = lambda ev: ev.accept()
+            self.progress.close()
+            self.progress = None
+
+        if not getattr(self, "_progress_user_closed", False):
+            QMessageBox.information(
+                self, "Lazer Library Updated",
+                f"✅ osu!Lazer scan complete!\n\n"
+                f"• New songs: {added}\n• Updated songs: {replaced}\n\n"
+                f"Library now has {len(self.library)} songs total."
+            )
+
     def _finalize_library(self, stable_library, osu_count, missing_count):
-        CUSTOM_SONGS_PATH = BASE_PATH / "custom_songs"
         custom_count = 0
         if CUSTOM_SONGS_PATH.exists() and any(CUSTOM_SONGS_PATH.iterdir()):
             self._on_progress_update("📥 Scanning custom songs folder...")
@@ -515,3 +566,19 @@ class LibraryMixin:
                 return False
         
         return False
+    
+    def _load_combined_cache(self):
+        osu_cache = load_cache(self.osu_folder) or []
+        custom_cache = load_cache(BASE_PATH / "custom_songs") or []
+        lazer_folder = getattr(self, "lazer_folder", None)
+        lazer_cache = load_cache(lazer_folder) if lazer_folder and os.path.isdir(lazer_folder) else []
+        lazer_cache = [s for s in (lazer_cache or []) if s.get("source") == "lazer"]
+
+        seen_keys = set()
+        combined = []
+        for s in lazer_cache + osu_cache + custom_cache:  # lazer wins ties
+            key = (s.get("title", "").strip().lower(), s.get("artist", "").strip().lower())
+            if key not in seen_keys:
+                seen_keys.add(key)
+                combined.append(s)
+        return combined

@@ -431,20 +431,7 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
         QShortcut(QKeySequence(Qt.Key_MediaPause),    self, self.pause_song)
             
         # Load from cache if available
-        osu_cache = load_cache(self.osu_folder) or []
-        custom_cache = load_cache(BASE_PATH / "custom_songs") or []
-        lazer_cache = load_cache(self.lazer_folder) if getattr(self, "lazer_folder", None) and os.path.isdir(self.lazer_folder or "") else []
-        lazer_cache = [s for s in (lazer_cache or []) if s.get("source") == "lazer"]
-
-        # No dedup needed here since save_cache already handles it
-        # But do a final safety dedup just in case
-        seen_keys = set()
-        combined_cache = []
-        for s in lazer_cache + osu_cache + custom_cache:  # lazer first so it wins
-            key = (s.get("title","").strip().lower(), s.get("artist","").strip().lower())
-            if key not in seen_keys:
-                seen_keys.add(key)
-                combined_cache.append(s)
+        combined_cache = self._load_combined_cache()
         
         if combined_cache and not first_setup:
             is_valid, status_msg, missing_songs = validate_cache(self.osu_folder)
@@ -479,9 +466,7 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
                 
                 if clicked == clean_btn:
                     removed = remove_missing_songs(missing_songs)
-                    osu_cache = load_cache(self.osu_folder)
-                    custom_cache = load_cache(BASE_PATH / "custom_songs")
-                    combined_cache = (osu_cache or []) + (custom_cache or [])
+                    combined_cache = self._load_combined_cache()
                     if combined_cache:
                         self.library = combined_cache
                         self.queue = list(combined_cache)

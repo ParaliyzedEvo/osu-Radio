@@ -9,7 +9,7 @@ from collections import defaultdict
 from pathlib import Path
 from PySide6.QtCore import QThread, Signal
 from osuRadio.config import get_lazer_reader_path, get_silent_subprocess_kwargs
-from osuRadio.db import save_cache
+from osuRadio.db import save_cache, update_lazer_realm_mtime 
 
 def compute_file_hash(path: str) -> str:
     h = hashlib.sha256()
@@ -129,7 +129,6 @@ class LazerScanner(QThread):
             return
 
         # group by (title, artist, mapper) so we can tell which sets actually have multiple distinct audio files and only disambiguate those
-        from collections import defaultdict
         groups = defaultdict(list)
         for (title, artist, mapper, _hash), entry in seen.items():
             groups[(title, artist, mapper)].append(entry)
@@ -158,5 +157,6 @@ class LazerScanner(QThread):
 
         self.progress_update.emit(f"[osu!Lazer] 💾 Saving {len(songs)} lazer songs to cache...")
         save_cache(self.lazer_dir, songs, source="lazer")
+        update_lazer_realm_mtime(self.lazer_dir)
         self.progress_update.emit(f"[osu!Lazer] ✅ Lazer import complete! ({len(songs)} songs)")
         self.done.emit(songs)
