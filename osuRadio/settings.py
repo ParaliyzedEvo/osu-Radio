@@ -12,10 +12,10 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QLabel, QFileDialog,
-    QHBoxLayout, QVBoxLayout,
+    QHBoxLayout, QVBoxLayout, QGridLayout,
     QPushButton, QLineEdit, QSlider,
     QDialog, QDialogButtonBox, QCheckBox, QComboBox,
-    QSizePolicy, QMessageBox
+    QGroupBox, QSizePolicy, QMessageBox
 )
 from PySide6.QtMultimedia import QMediaPlayer, QVideoSink
 
@@ -28,34 +28,39 @@ class SettingsDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
         self.setWindowTitle("Settings")
-        self.setFixedSize(400, 400)
+        self.setFixedSize(420, 480)
         self.main = parent
 
         layout = QVBoxLayout(self)
 
-        # osu!Stable Songs folder selection
+        # Folders group
+        folders_group = QGroupBox("Song Folders")
+        folders_layout = QVBoxLayout(folders_group)
+
         self.folder_edit = QLineEdit(parent.osu_folder)
         browse_btn = QPushButton("Browse…")
         browse_btn.clicked.connect(self.browse_folder)
-
         folder_layout = QHBoxLayout()
-        folder_layout.addWidget(QLabel("osu!Stable Songs Folder:"))
+        folder_layout.addWidget(QLabel("osu!Stable:"))
         folder_layout.addWidget(self.folder_edit)
         folder_layout.addWidget(browse_btn)
-        layout.addLayout(folder_layout)
+        folders_layout.addLayout(folder_layout)
 
-        # osu!Lazer Songs folder selection
         self.lazer_edit = QLineEdit(parent.lazer_folder)
         lazer_browse_btn = QPushButton("Browse…")
         lazer_browse_btn.clicked.connect(self.browse_lazer_folder)
-
         lazer_layout = QHBoxLayout()
-        lazer_layout.addWidget(QLabel("osu!Lazer Folder:"))
+        lazer_layout.addWidget(QLabel("osu!Lazer:"))
         lazer_layout.addWidget(self.lazer_edit)
         lazer_layout.addWidget(lazer_browse_btn)
-        layout.addLayout(lazer_layout)
+        folders_layout.addLayout(lazer_layout)
 
-        # Toggles
+        layout.addWidget(folders_group)
+
+        # Toggles group (2-column grid instead of 6 stacked rows)
+        toggles_group = QGroupBox("Options")
+        toggles_grid = QGridLayout(toggles_group)
+
         self.light_mode_checkbox = QCheckBox("Light Mode")
         self.video_checkbox = QCheckBox("Enable Background Video")
         self.autoplay_checkbox = QCheckBox("Autoplay on Startup")
@@ -70,39 +75,41 @@ class SettingsDialog(QDialog):
         self.pitch_checkbox.setChecked(parent.preserve_pitch)
         self.prerelease_checkbox.setChecked(parent.allow_prerelease)
 
-        for checkbox in (
-            self.light_mode_checkbox, self.video_checkbox, self.autoplay_checkbox,
-            self.media_key_checkbox, self.pitch_checkbox, self.prerelease_checkbox
-        ):
-            layout.addWidget(checkbox)
+        toggles_grid.addWidget(self.light_mode_checkbox, 0, 0)
+        toggles_grid.addWidget(self.video_checkbox, 0, 1)
+        toggles_grid.addWidget(self.autoplay_checkbox, 1, 0)
+        toggles_grid.addWidget(self.media_key_checkbox, 1, 1)
+        toggles_grid.addWidget(self.pitch_checkbox, 2, 0)
+        toggles_grid.addWidget(self.prerelease_checkbox, 2, 1)
 
-        # Opacity slider
+        layout.addWidget(toggles_group)
+
+        # Appearance group (sliders + resolution)
+        appearance_group = QGroupBox("Appearance")
+        appearance_layout = QVBoxLayout(appearance_group)
+
         self.opacity_slider = QSlider(Qt.Horizontal)
         self.opacity_slider.setRange(10, 100)
         self.opacity_slider.setValue(int(parent.ui_opacity * 100))
         self.opacity_slider.valueChanged.connect(
             lambda v: parent.ui_effect.setOpacity(v / 100)
         )
-
         opacity_layout = QHBoxLayout()
         opacity_layout.addWidget(QLabel("UI Opacity:"))
         opacity_layout.addWidget(self.opacity_slider)
-        layout.addLayout(opacity_layout)
+        appearance_layout.addLayout(opacity_layout)
 
-        # Hue slider
         self.hue_slider = QSlider(Qt.Horizontal)
         self.hue_slider.setRange(0, 360)
         self.hue_slider.setValue(parent.hue)
         self.hue_slider.valueChanged.connect(
             lambda v: parent.bg_widget.effect.setColor(QColor.fromHsv(v, 255, 255))
         )
-
         hue_layout = QHBoxLayout()
         hue_layout.addWidget(QLabel("Hue:"))
         hue_layout.addWidget(self.hue_slider)
-        layout.addLayout(hue_layout)
+        appearance_layout.addLayout(hue_layout)
 
-        # Brightness slider
         self.brightness_slider = QSlider(Qt.Horizontal)
         self.brightness_slider.setRange(50, 255)
         self.brightness_slider.setValue(getattr(parent, "brightness", 255))
@@ -111,12 +118,11 @@ class SettingsDialog(QDialog):
                 QColor.fromHsv(parent.hue, 255, v)
             )
         )
-
         self.brightness_label = QLabel("Brightness:")
         brightness_layout = QHBoxLayout()
         brightness_layout.addWidget(self.brightness_label)
         brightness_layout.addWidget(self.brightness_slider)
-        layout.addLayout(brightness_layout)
+        appearance_layout.addLayout(brightness_layout)
 
         def update_brightness_state(checked):
             self.brightness_slider.setEnabled(checked)
@@ -126,7 +132,6 @@ class SettingsDialog(QDialog):
         self.video_checkbox.toggled.connect(update_brightness_state)
         update_brightness_state(parent.video_enabled)
 
-        # Resolution dropdown
         self.res_combo = QComboBox()
         self.resolutions = {
             "1920×1080": (1920, 1080),
@@ -141,28 +146,32 @@ class SettingsDialog(QDialog):
             self.res_combo.setCurrentText(current_res)
         else:
             self.res_combo.setCurrentText("Custom Resolution")
-
         res_layout = QHBoxLayout()
         res_layout.addWidget(QLabel("Resolution:"))
         res_layout.addWidget(self.res_combo)
-        layout.addLayout(res_layout)
+        appearance_layout.addLayout(res_layout)
 
-        # Update button
+        layout.addWidget(appearance_group)
+
+        layout.addStretch()
+
+        # Bottom action row (Updates / Logs / Credits side by side)
         update_btn = QPushButton("Check for Updates")
         update_btn.clicked.connect(lambda: parent.check_updates(manual=True))
-        layout.addWidget(update_btn)
 
-        # Open logs folder button
         logs_btn = QPushButton("Open Logs Folder")
         logs_btn.clicked.connect(self.open_logs_folder)
-        layout.addWidget(logs_btn)
 
-        # Credits button
         credits_btn = QPushButton("Credits")
         credits_btn.clicked.connect(self.show_credits)
-        layout.addWidget(credits_btn)
 
-        # Buttons
+        actions_layout = QHBoxLayout()
+        actions_layout.addWidget(update_btn)
+        actions_layout.addWidget(logs_btn)
+        actions_layout.addWidget(credits_btn)
+        layout.addLayout(actions_layout)
+
+        # OK / Cancel
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.apply)
         buttons.rejected.connect(self.reject)
