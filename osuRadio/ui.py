@@ -1,3 +1,4 @@
+# ui.py
 from PySide6.QtCore import (
     Qt, QTimer,
     QPropertyAnimation, QEasingCurve, Property,

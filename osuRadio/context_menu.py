@@ -1,3 +1,4 @@
+# context_menu.py
 from PySide6.QtCore import (
     Qt
 )

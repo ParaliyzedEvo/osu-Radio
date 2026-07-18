@@ -1,3 +1,4 @@
+# lazer.py
 import sys
 import json
 import hashlib

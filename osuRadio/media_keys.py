@@ -1,3 +1,4 @@
+# media_keys.py
 from PySide6.QtCore import (
     Qt, QMetaObject
 )

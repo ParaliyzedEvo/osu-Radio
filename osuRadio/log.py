@@ -1,3 +1,4 @@
+# log.py
 import sys
 import gzip
 import shutil
