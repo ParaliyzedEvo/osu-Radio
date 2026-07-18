@@ -156,6 +156,7 @@ class LazerScanner(QThread):
                 entry.get("title", "").strip(),
                 entry.get("artist", "").strip(),
                 entry.get("mapper", "").strip(),
+                entry.get("audioHash", "").strip(),
             )
             if key not in seen:
                 seen[key] = entry
@@ -171,22 +172,33 @@ class LazerScanner(QThread):
         if self.isInterruptionRequested():
             return
 
+        # group by (title, artist, mapper) so we can tell which sets actually have multiple distinct audio files and only disambiguate those
+        from collections import defaultdict
+        groups = defaultdict(list)
+        for (title, artist, mapper, _hash), entry in seen.items():
+            groups[(title, artist, mapper)].append(entry)
+
         songs = []
-        for entry in seen.values():
-            songs.append({
-                "title":            entry.get("title",          "Unknown"),
-                "artist":           entry.get("artist",         "Unknown"),
-                "mapper":           entry.get("mapper",         "Unknown"),
-                "audio":            entry.get("audioFilename",  "audio.mp3"),
-                "audio_path":       entry.get("audioPath",      ""),
-                "audio_hash":       entry.get("audioHash",      ""),
-                "background":       entry.get("backgroundPath") or "",
-                "background_hash":  entry.get("backgroundHash") or "",
-                "length":           0,
-                "osu_file":         "",
-                "folder":           entry.get("audioPath",      ""),
-                "source":           "lazer",
-            })
+        for group in groups.values():
+            multi = len(group) > 1
+            for entry in group:
+                title = entry.get("title", "Unknown")
+                if multi and entry.get("difficulty"):
+                    title = f"{title} [{entry['difficulty']}]"
+                songs.append({
+                    "title":            title,
+                    "artist":           entry.get("artist",         "Unknown"),
+                    "mapper":           entry.get("mapper",         "Unknown"),
+                    "audio":            entry.get("audioFilename",  "audio.mp3"),
+                    "audio_path":       entry.get("audioPath",      ""),
+                    "audio_hash":       entry.get("audioHash",      ""),
+                    "background":       entry.get("backgroundPath") or "",
+                    "background_hash":  entry.get("backgroundHash") or "",
+                    "length":           0,
+                    "osu_file":         "",
+                    "folder":           entry.get("audioPath",      ""),
+                    "source":           "lazer",
+                })
 
         self.progress_update.emit(f"[osu!Lazer] 💾 Saving {len(songs)} lazer songs to cache...")
         save_cache(self.lazer_dir, songs, source="lazer")
