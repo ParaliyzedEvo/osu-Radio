@@ -1,5 +1,6 @@
 import os
 import sqlite3
+from collections import defaultdict
 from pathlib import Path
 from PySide6.QtCore import Qt, Signal, QThread, QTimer
 from PySide6.QtWidgets import QApplication, QLabel, QMessageBox, QProgressDialog
@@ -63,21 +64,34 @@ class LibraryScanner(QThread):
                             print(f"[LibraryScanner] Skipping {title} - no audio file specified")
                             skipped_no_audio += 1
                             continue
-                        
-                        key = (title, artist, mapper)
+
+                        # different audios under the same title/artist/mapper no longer collide
+                        audio_key = str((Path(folder) / audio_file).resolve())
+                        key = (title, artist, mapper, audio_key)
                         if key not in uniq:
                             uniq[key] = s
-                            
+
                         if processed % 10 == 0:
                             msg = f"[osu!Stable] 🎵 Processing: {artist} - {title} ({processed}/{total_files})"
                             self.progress_update.emit(msg)
-                            
+
                     except Exception as e:
                         print(f"[LibraryScanner] Error parsing {full_path}: {e}")
 
         if self.isInterruptionRequested():
             print("[LibraryScanner] Interruption requested before saving cache.")
             return
+
+        groups = defaultdict(list)
+        for (title, artist, mapper, _audio_key), s in uniq.items():
+            groups[(title, artist, mapper)].append(s)
+
+        for songs in groups.values():
+            if len(songs) > 1:
+                for s in songs:
+                    diff = s.get("difficulty")
+                    if diff:
+                        s["title"] = f"{s['title']} [{diff}]"
 
         library = list(uniq.values())
         self.progress_update.emit(f"[osu!Stable] 💾 Saving {len(library)} valid beatmaps to cache...")

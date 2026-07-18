@@ -4,6 +4,7 @@ import hashlib
 import subprocess
 import tempfile
 import time
+from collections import defaultdict
 from pathlib import Path
 from PySide6.QtCore import QThread, Signal
 from osuRadio.config import get_lazer_reader_path, get_silent_subprocess_kwargs
@@ -79,26 +80,37 @@ def convert_lazer_to_songs(raw: list) -> list:
             entry.get("title", "").strip(),
             entry.get("artist", "").strip(),
             entry.get("mapper", "").strip(),
+            entry.get("audioHash", ""),
         )
         if key not in seen:
             seen[key] = entry
 
+    # disambiguate titles that share (title, artist, mapper) but differ in audio
+    groups = defaultdict(list)
+    for (title, artist, mapper, _hash), entry in seen.items():
+        groups[(title, artist, mapper)].append(entry)
+
     songs = []
-    for entry in seen.values():
-        songs.append({
-            "title":            entry.get("title",          "Unknown"),
-            "artist":           entry.get("artist",         "Unknown"),
-            "mapper":           entry.get("mapper",         "Unknown"),
-            "audio":            entry.get("audioFilename",  "audio.mp3"),
-            "audio_path":       entry.get("audioPath",      ""),
-            "audio_hash":       entry.get("audioHash",      ""),
-            "background":       entry.get("backgroundPath") or "",
-            "background_hash":  entry.get("backgroundHash") or "",
-            "length":           0,
-            "osu_file":         "",
-            "folder":           entry.get("audioPath",      ""),
-            "source":           "lazer",
-        })
+    for group in groups.values():
+        multi = len(group) > 1
+        for entry in group:
+            title = entry.get("title", "Unknown")
+            if multi and entry.get("difficulty"):
+                title = f"{title} [{entry['difficulty']}]"
+            songs.append({
+                "title":            title,
+                "artist":           entry.get("artist",         "Unknown"),
+                "mapper":           entry.get("mapper",         "Unknown"),
+                "audio":            entry.get("audioFilename",  "audio.mp3"),
+                "audio_path":       entry.get("audioPath",      ""),
+                "audio_hash":       entry.get("audioHash",      ""),
+                "background":       entry.get("backgroundPath") or "",
+                "background_hash":  entry.get("backgroundHash") or "",
+                "length":           0,
+                "osu_file":         "",
+                "folder":           entry.get("audioPath",      ""),
+                "source":           "lazer",
+            })
     return songs
 
 
