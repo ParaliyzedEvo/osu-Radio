@@ -1,6 +1,8 @@
 # settings.py
 import json
 import os
+import sys
+import subprocess
 from pathlib import Path
 from PySide6.QtCore import (
     Qt, QUrl
@@ -17,7 +19,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtMultimedia import QMediaPlayer, QVideoSink
 
-from osuRadio.config import SETTINGS_FILE
+from osuRadio.config import SETTINGS_FILE, BASE_PATH
 from osuRadio.msg import show_modal
 from osuRadio.media_keys import update_media_key_listener
 from osuRadio import __version__, __author__
@@ -150,6 +152,11 @@ class SettingsDialog(QDialog):
         update_btn.clicked.connect(lambda: parent.check_updates(manual=True))
         layout.addWidget(update_btn)
 
+        # Open logs folder button
+        logs_btn = QPushButton("Open Logs Folder")
+        logs_btn.clicked.connect(self.open_logs_folder)
+        layout.addWidget(logs_btn)
+
         # Credits button
         credits_btn = QPushButton("Credits")
         credits_btn.clicked.connect(self.show_credits)
@@ -187,6 +194,19 @@ class SettingsDialog(QDialog):
         msg.setText(text)
 
         show_modal(msg)
+
+    def open_logs_folder(self):
+        log_dir = BASE_PATH / "logs"
+        log_dir.mkdir(exist_ok=True)
+        try:
+            if sys.platform.startswith("win"):
+                os.startfile(str(log_dir))
+            elif sys.platform == "darwin":
+                subprocess.run(["open", str(log_dir)])
+            else:
+                subprocess.run(["xdg-open", str(log_dir)])
+        except Exception as e:
+            print(f"[Settings] Failed to open logs folder: {e}")
 
     def browse_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Select osu!Stable Songs Folder")
