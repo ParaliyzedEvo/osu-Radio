@@ -9,7 +9,7 @@ import sqlite3
 import py7zr
 from pathlib import Path
 
-from PySide6.QtCore import QTimer, Signal, QThread, Qt
+from PySide6.QtCore import QTimer, Signal, QThread, Qt, QEventLoop
 from PySide6.QtWidgets import (
     QLabel, QButtonGroup, QRadioButton, QVBoxLayout, QProgressBar, QLineEdit,
     QDialog, QDialogButtonBox, QMessageBox, QCheckBox, QScrollArea, QWidget,
@@ -23,6 +23,7 @@ from osuRadio.config import (
     CUSTOM_SONGS_PATH, DATABASE_FILE, IS_WINDOWS, get_yt_dlp_path,
     BASE_PATH, EXPORT_STATE_FILE
 )
+from osuRadio.yt_dlp_update import YtDlpUpdateThread
 
 
 class ExportWorker(QThread):
@@ -198,7 +199,42 @@ class CustomSongsMixin:
         if msg.result() == QMessageBox.StandardButton.Yes:
             self.import_custom_audio(CUSTOM_SONGS_PATH)
 
+    def _ensure_yt_dlp_ready(self) -> bool:
+        # Called right before a YouTube download starts, block briefly until it's actually downloaded.
+        yt_dlp_path = get_yt_dlp_path()
+
+        if yt_dlp_path.exists():
+            self._silent_yt_dlp_update_thread = YtDlpUpdateThread()
+            self._silent_yt_dlp_update_thread.start()
+            return True
+
+        progress = QMessageBox(self)
+        progress.setWindowTitle("Preparing yt-dlp")
+        progress.setText("Downloading yt-dlp for the first time, please wait…")
+        progress.setStandardButtons(QMessageBox.NoButton)
+        progress.show()
+        QApplication.processEvents()
+
+        thread = YtDlpUpdateThread()
+        loop = QEventLoop()
+        thread.finished_update.connect(loop.quit)
+        thread.start()
+        loop.exec()
+
+        progress.close()
+
+        if not yt_dlp_path.exists():
+            QMessageBox.critical(
+                self, "yt-dlp Unavailable",
+                "Couldn't download yt-dlp. Check your internet connection and try again."
+            )
+            return False
+        return True
+
     def youtube_import_flow(self, CUSTOM_SONGS_PATH):
+        if not self._ensure_yt_dlp_ready():
+            return
+        
         class DownloadWorker(QThread):
             progress_updated = Signal(int)
             status_updated = Signal(str)

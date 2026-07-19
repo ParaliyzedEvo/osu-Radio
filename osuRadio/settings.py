@@ -290,6 +290,7 @@ class SettingsMixin:
             "custom_width": "null",
             "custom_height": "null",
             "skipped_versions": [],
+            "yt_dlp_version": ""
         }
         if SETTINGS_FILE.exists():
             try:
@@ -321,6 +322,7 @@ class SettingsMixin:
             "custom_width": self.width() if self.resizable else None,
             "custom_height": self.height() if self.resizable else None,
             "skipped_versions": self.skipped_versions,
+            "yt_dlp_version": getattr(self, "yt_dlp_version", "")
         }
         try:
             with open(SETTINGS_FILE, "w", encoding="utf-8") as f:

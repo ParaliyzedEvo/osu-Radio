@@ -17,6 +17,7 @@ from osuRadio.ui import MarqueeLabel, BackgroundWidget, UiMixin
 from osuRadio.update import check_for_update, download_and_install_update, UpdateMixin
 from osuRadio.media_keys import update_media_key_listener
 from osuRadio.msg import show_modal
+from osuRadio.yt_dlp_update import check_and_update_yt_dlp, YtDlpUpdateThread
 
 # Features
 from osuRadio.custom_songs import CustomSongsMixin
@@ -44,7 +45,9 @@ __all__ = [
     "SettingsDialog", "SettingsMixin", "MarqueeLabel", "BackgroundWidget", "UiMixin",
 
     # System
-    "check_for_update", "download_and_install_update", "UpdateMixin", "update_media_key_listener", "show_modal",
+    "check_for_update", "download_and_install_update", "UpdateMixin",
+    "check_and_update_yt_dlp", "YtDlpUpdateThread",
+    "update_media_key_listener", "show_modal",
 
     # Features
     "CustomSongsMixin", "LibraryScanner", "LibraryMixin", "ContextMenuMixin",

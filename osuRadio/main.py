@@ -116,6 +116,7 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
         self.was_prerelease     = settings.get("was_prerelease", False)
         self.skipped_versions   = settings.get("skipped_versions", [])
         res                     = settings.get("resolution", "854×480")
+        self.yt_dlp_version     = settings.get("yt_dlp_version", "")
         self.resizable          = (res == "Custom Resolution")
         if res == "Custom Resolution":
             rw = settings.get("custom_width", 854)
@@ -582,6 +583,14 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
         QTimer.singleShot(1000, lambda: self.check_updates())
         QTimer.singleShot(0, self.apply_window_flags)
         QTimer.singleShot(0, self._set_dynamic_max_size)
+
+        self._yt_dlp_update_thread = YtDlpUpdateThread()
+        self._yt_dlp_update_thread.finished_update.connect(self._on_yt_dlp_update_finished)
+        self._yt_dlp_update_thread.start()
+
+    def _on_yt_dlp_update_finished(self, version_tag):
+        if version_tag:
+            self.yt_dlp_version = version_tag
 
     def _get_path(self, song):
         key = (song.get("title"), song.get("artist"))
