@@ -18,7 +18,7 @@ from PySide6.QtWidgets import QMessageBox
 from PySide6.QtGui import (
     QCursor
 )
-from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QMediaDevices, QAudioFormat
+from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QMediaDevices, QAudioFormat, QAudioDevice
 
 from osuRadio.config import get_ffmpeg_bin_path, DATABASE_FILE, get_silent_subprocess_kwargs
 from osuRadio.db import get_audio_path
@@ -89,6 +89,28 @@ def custom_run(*args, **kwargs):
     return subprocess.run(cmd, **subprocess_kwargs)
 
 ffmpeg.run = custom_run
+
+def list_audio_output_devices():
+    return QMediaDevices.audioOutputs()
+
+
+def get_device_id_str(device: QAudioDevice) -> str:
+    # Stable string form of a QAudioDevice's id, safe to persist in settings.json.
+    return bytes(device.id()).hex()
+
+
+def find_audio_output_device(device_id_str: str) -> QAudioDevice:
+    # Resolves a persisted device id back to a live QAudioDevice. Falls back silently to the system default if the id is blank or the device is no longer present (unplugged, driver changed, etc.).
+    if not device_id_str:
+        return QMediaDevices.defaultAudioOutput()
+
+    for device in QMediaDevices.audioOutputs():
+        if get_device_id_str(device) == device_id_str:
+            return device
+
+    print("[Audio] Saved output device not found — falling back to system default.")
+    return QMediaDevices.defaultAudioOutput()
+
 
 class PitchAdjustedPlayer:
     def __init__(self, audio_output: QAudioOutput, parent=None):
@@ -338,7 +360,7 @@ class PlayerMixin:
         self.update_play_pause_icon()
 
     def setup_media_players(self):
-        output_device = QMediaDevices.defaultAudioOutput()
+        output_device = find_audio_output_device(getattr(self, "audio_output_device_id", ""))
 
         audio_format = QAudioFormat()
         audio_format.setSampleRate(44100)
@@ -361,6 +383,12 @@ class PlayerMixin:
         self.audio_out.setVolume(self.vol / 100)
 
         self.pitch_player = PitchAdjustedPlayer(self.audio_out, self)
+
+    def change_audio_output_device(self, device_id_str: str):
+        # Switches playback to a different output device live 
+        device = find_audio_output_device(device_id_str)
+        self.audio_out.setDevice(device)
+        self.audio_output_device_id = device_id_str
 
     def connect_slider_signals(self):
         # Link slider drag behavior and update preview time.

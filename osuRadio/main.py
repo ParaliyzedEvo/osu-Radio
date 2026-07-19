@@ -102,22 +102,23 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
                 self.osu_folder = str(BASE_PATH / "no_stable")
                 Path(self.osu_folder).mkdir(exist_ok=True)
 
-        self.light_mode         = settings.get("light_mode", False)
-        self.ui_opacity         = settings.get("ui_opacity", 0.75)
-        self.hue                = settings.get("hue", 240)
-        self.brightness         = settings.get("brightness",255)
-        self.loop_mode          = settings.get("loop_mode", 0)
-        self.video_enabled      = settings.get("video_enabled", True)
-        self.autoplay           = settings.get("autoplay", False)
-        self.media_keys_enabled = settings.get("media_keys_enabled", True)
-        self.vol                = settings.get("volume", 30)
-        self.preserve_pitch     = settings.get("preserve_pitch", True)
-        self.allow_prerelease   = settings.get("allow_prerelease", False)
-        self.was_prerelease     = settings.get("was_prerelease", False)
-        self.skipped_versions   = settings.get("skipped_versions", [])
-        res                     = settings.get("resolution", "854×480")
-        self.yt_dlp_version     = settings.get("yt_dlp_version", "")
-        self.resizable          = (res == "Custom Resolution")
+        self.light_mode             = settings.get("light_mode", False)
+        self.ui_opacity             = settings.get("ui_opacity", 0.75)
+        self.hue                    = settings.get("hue", 240)
+        self.brightness             = settings.get("brightness",255)
+        self.loop_mode              = settings.get("loop_mode", 0)
+        self.video_enabled          = settings.get("video_enabled", True)
+        self.autoplay               = settings.get("autoplay", False)
+        self.media_keys_enabled     = settings.get("media_keys_enabled", True)
+        self.vol                    = settings.get("volume", 30)
+        self.preserve_pitch         = settings.get("preserve_pitch", True)
+        self.allow_prerelease       = settings.get("allow_prerelease", False)
+        self.was_prerelease         = settings.get("was_prerelease", False)
+        self.skipped_versions       = settings.get("skipped_versions", [])
+        res                         = settings.get("resolution", "854×480")
+        self.yt_dlp_version         = settings.get("yt_dlp_version", "")
+        self.resizable              = (res == "Custom Resolution")
+        self.audio_output_device_id = settings.get("audio_output_device_id", "")
         if res == "Custom Resolution":
             rw = settings.get("custom_width", 854)
             rh = settings.get("custom_height", 480)
@@ -577,7 +578,7 @@ class MainWindow(QMainWindow, UiMixin, PlayerMixin, SettingsMixin, CustomSongsMi
             self.osu_folder, self.lazer_folder, self.light_mode, self.ui_opacity,
             w, h, self.hue, self.brightness, self.video_enabled, self.autoplay,
             self.media_keys_enabled, self.preserve_pitch, self.allow_prerelease, 
-            allow_resizing=self.resizable
+            allow_resizing=self.resizable, audio_device_id=self.audio_output_device_id
         )
         
         QTimer.singleShot(1000, lambda: self.check_updates())

@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtMultimedia import QMediaPlayer, QVideoSink
 
 from osuRadio.config import SETTINGS_FILE, BASE_PATH
+from osuRadio.audio import list_audio_output_devices, get_device_id_str
 from osuRadio.msg import show_modal
 from osuRadio.media_keys import update_media_key_listener
 from osuRadio import __version__, __author__
@@ -56,6 +57,25 @@ class SettingsDialog(QDialog):
         folders_layout.addLayout(lazer_layout)
 
         layout.addWidget(folders_group)
+
+        # Audio output device group
+        audio_group = QGroupBox("Audio")
+        audio_layout = QHBoxLayout(audio_group)
+
+        self.audio_output_combo = QComboBox()
+        self.audio_output_combo.addItem("System Default", "")
+        current_device_id = getattr(parent, "audio_output_device_id", "")
+        selected_index = 0
+        for i, device in enumerate(list_audio_output_devices()):
+            dev_id = get_device_id_str(device)
+            self.audio_output_combo.addItem(device.description(), dev_id)
+            if dev_id == current_device_id:
+                selected_index = i + 1
+        self.audio_output_combo.setCurrentIndex(selected_index)
+
+        audio_layout.addWidget(QLabel("Output Device:"))
+        audio_layout.addWidget(self.audio_output_combo)
+        layout.addWidget(audio_group)
 
         # Toggles group (2-column grid instead of 6 stacked rows)
         toggles_group = QGroupBox("Options")
@@ -228,6 +248,7 @@ class SettingsDialog(QDialog):
             self.lazer_edit.setText(folder)
 
     def apply(self):
+        audio_device_id = self.audio_output_combo.currentData()
         folder = self.folder_edit.text()
         lazer = self.lazer_edit.text()
         light = self.light_mode_checkbox.isChecked()
@@ -250,7 +271,7 @@ class SettingsDialog(QDialog):
         self.main.apply_settings(
             folder, lazer, light, opacity, w, h, hue, brightness, 
             video_on, autoplay, media_keys, preserve_pitch,
-            allow_prerelease, allow_resizing
+            allow_prerelease, allow_resizing, audio_device_id
         )
 
         if was_prerelease != allow_prerelease:
@@ -271,6 +292,7 @@ class SettingsDialog(QDialog):
 class SettingsMixin:
     def load_user_settings(self):
         defaults = {
+            "audio_output_device_id": "",
             "osu_folder": None,
             "lazer_folder": None,
             "light_mode": False,
@@ -302,6 +324,7 @@ class SettingsMixin:
 
     def save_user_settings(self):
         settings = {
+            "audio_output_device_id": getattr(self, "audio_output_device_id", ""),
             "osu_folder": self.osu_folder,
             "lazer_folder": self.lazer_folder,
             "light_mode": self.light_mode,
@@ -330,7 +353,7 @@ class SettingsMixin:
         except Exception as e:
             print("[save_user_settings] Failed to save settings:", e)
 
-    def apply_settings(self, folder, lazer_folder, light, opacity, w, h, hue, brightness, video_on, autoplay, media_keys, preserve_pitch, allow_prerelease, allow_resizing=False):
+    def apply_settings(self, folder, lazer_folder, light, opacity, w, h, hue, brightness, video_on, autoplay, media_keys, preserve_pitch, allow_prerelease, allow_resizing=False, audio_device_id=None):
         if folder != self.osu_folder and os.path.isdir(folder):
             self.osu_folder = folder
             self.reload_songs()
@@ -338,6 +361,9 @@ class SettingsMixin:
         if lazer_folder != self.lazer_folder and os.path.isdir(lazer_folder):
             self.lazer_folder = lazer_folder
             self.reload_songs()
+
+        if audio_device_id is not None and audio_device_id != getattr(self, "audio_output_device_id", ""):
+            self.change_audio_output_device(audio_device_id)
 
         self._apply_ui_settings(light, opacity, w, h, hue, brightness)
         self._apply_video_setting(video_on)
