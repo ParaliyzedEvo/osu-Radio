@@ -58,57 +58,61 @@ def validate_cache(folder) -> Tuple[bool, str, List[Dict]]:
     if not os.path.exists(folder_str):
         return False, f"Folder not found: {folder_str}", []
     
+    conn = None
     try:
-        with sqlite3.connect(DATABASE_FILE) as conn:
-            cursor = conn.cursor()
-            
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='metadata'")
-            if not cursor.fetchone():
-                return False, "Cache database is outdated (missing metadata table)", []
-            
-            cursor.execute("SELECT value FROM metadata WHERE key = ?", (f'folder_mtime_{folder_str}',))
-            stored_mtime = cursor.fetchone()
-            current_mtime = str(os.path.getmtime(folder_str))
-            
-            cursor.execute(
-                "SELECT title, artist, mapper, audio, background, length, osu_file, folder, source_folder "
-                "FROM songs WHERE source_folder = ?",
-                (folder_str,)
-            )
-            cached_songs = [
-                dict(zip(["title", "artist", "mapper", "audio", "background", "length", "osu_file", "folder", "source_folder"], row))
-                for row in cursor.fetchall()
-            ]
-            
-            if not cached_songs:
-                return False, f"No songs cached for folder: {folder_str}", []
-            
-            missing_songs = []
-            valid_songs = 0
-            
-            for song in cached_songs:
-                osu_file_path = Path(song.get("folder", "")) / song.get("osu_file", "")
-                if not osu_file_path.exists():
-                    missing_songs.append(song)
-                else:
-                    valid_songs += 1
-            
-            missing_count = len(missing_songs)
-            total_count = len(cached_songs)
-            
-            if missing_count == 0:
-                if stored_mtime and stored_mtime[0] == current_mtime:
-                    return True, f"Cache is up to date ({total_count} songs)", []
-                else:
-                    return True, f"Cache is valid but folder was modified ({total_count} songs)", []
-            elif missing_count < total_count * 0.3:  # Less than 30% missing
-                return True, f"Cache needs cleanup ({missing_count} missing, {valid_songs} valid songs)", missing_songs
+        conn = sqlite3.connect(DATABASE_FILE)
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='metadata'")
+        if not cursor.fetchone():
+            return False, "Cache database is outdated (missing metadata table)", []
+
+        cursor.execute("SELECT value FROM metadata WHERE key = ?", (f'folder_mtime_{folder_str}',))
+        stored_mtime = cursor.fetchone()
+        current_mtime = str(os.path.getmtime(folder_str))
+
+        cursor.execute(
+            "SELECT title, artist, mapper, audio, background, length, osu_file, folder, source_folder "
+            "FROM songs WHERE source_folder = ?",
+            (folder_str,)
+        )
+        cached_songs = [
+            dict(zip(["title", "artist", "mapper", "audio", "background", "length", "osu_file", "folder", "source_folder"], row))
+            for row in cursor.fetchall()
+        ]
+
+        if not cached_songs:
+            return False, f"No songs cached for folder: {folder_str}", []
+
+        missing_songs = []
+        valid_songs = 0
+
+        for song in cached_songs:
+            osu_file_path = Path(song.get("folder", "")) / song.get("osu_file", "")
+            if not osu_file_path.exists():
+                missing_songs.append(song)
             else:
-                return False, f"Too many songs missing ({missing_count}/{total_count}) - full rescan recommended", missing_songs
-                
+                valid_songs += 1
+
+        missing_count = len(missing_songs)
+        total_count = len(cached_songs)
+
+        if missing_count == 0:
+            if stored_mtime and stored_mtime[0] == current_mtime:
+                return True, f"Cache is up to date ({total_count} songs)", []
+            else:
+                return True, f"Cache is valid but folder was modified ({total_count} songs)", []
+        elif missing_count < total_count * 0.3:  # Less than 30% missing
+            return True, f"Cache needs cleanup ({missing_count} missing, {valid_songs} valid songs)", missing_songs
+        else:
+            return False, f"Too many songs missing ({missing_count}/{total_count}) - full rescan recommended", missing_songs
+
     except Exception as e:
         print(f"[validate_cache] Error: {e}")
         return False, f"Cache validation error: {str(e)}", []
+    finally:
+        if conn is not None:
+            conn.close()
 
 def load_cache(folder) -> Optional[List[Dict]]:
     if not DATABASE_FILE.exists():
